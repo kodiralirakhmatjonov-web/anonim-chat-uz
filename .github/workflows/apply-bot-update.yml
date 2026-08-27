@@ -17,13 +17,12 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Find and extract update
+      - name: Find and safely extract update
         shell: bash
         run: |
           set -euo pipefail
 
-          ZIP_FILE="$(find . -maxdepth 1 -type f -name 'anonymous-chat-bot-*.zip' \
-            -printf '%T@ %p\n' | sort -nr | head -n 1 | cut -d' ' -f2-)"
+          ZIP_FILE="$(find . -maxdepth 1 -type f -name 'anonymous-chat-bot-*.zip' -printf '%f\n' | sort -V | tail -n 1)"
 
           if [ -z "${ZIP_FILE}" ]; then
             echo "No anonymous-chat-bot ZIP found."
@@ -32,8 +31,17 @@ jobs:
 
           echo "Applying ${ZIP_FILE}"
 
-          unzip -o "${ZIP_FILE}" -d .
-          rm -f "${ZIP_FILE}"
+          TMP_DIR="$(mktemp -d)"
+          unzip -o "${ZIP_FILE}" -d "${TMP_DIR}"
+
+          # GitHub Actions' built-in token is not allowed to create/update
+          # workflow files. Workflow YAML files must be uploaded manually.
+          rm -rf "${TMP_DIR}/.github/workflows"
+
+          rsync -a "${TMP_DIR}/" ./
+
+          rm -rf "${TMP_DIR}"
+          rm -f anonymous-chat-bot-*.zip
 
       - name: Commit applied update
         shell: bash
