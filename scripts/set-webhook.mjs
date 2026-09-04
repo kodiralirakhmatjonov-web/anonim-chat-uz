@@ -30,12 +30,36 @@ await telegram("setWebhook", {
   drop_pending_updates: false
 });
 
+await telegram("setMyName", { name: "Sirdosh" });
+await telegram("setMyShortDescription", {
+  short_description: "Разговоры без имени. Ismsiz suhbatlar."
+});
+await telegram("setMyDescription", {
+  description: "Sirdosh — безопасные анонимные разговоры без показа Telegram-профиля. Найдите собеседника сейчас, оставьте анонимную заявку или присоединитесь к вечернему чату. Только 18+."
+});
+
 await telegram("setMyCommands", {
   commands: [
-    { command: "start", description: "Открыть меню" },
-    { command: "find", description: "Найти собеседника" },
-    { command: "next", description: "Следующий собеседник" },
-    { command: "stop", description: "Завершить чат" }
+    { command: "start", description: "Открыть Sirdosh" },
+    { command: "find", description: "Найти разговор сейчас" },
+    { command: "inbox", description: "Анонимные входящие" },
+    { command: "evening", description: "Вечерний чат" },
+    { command: "safety", description: "Безопасность" },
+    { command: "next", description: "Следующий разговор" },
+    { command: "stop", description: "Завершить разговор" }
+  ]
+});
+
+await telegram("setMyCommands", {
+  language_code: "uz",
+  commands: [
+    { command: "start", description: "Sirdosh menyusi" },
+    { command: "find", description: "Hozir suhbat topish" },
+    { command: "inbox", description: "Anonim kiruvchilar" },
+    { command: "evening", description: "Kechki suhbat" },
+    { command: "safety", description: "Xavfsizlik" },
+    { command: "next", description: "Keyingi suhbat" },
+    { command: "stop", description: "Suhbatni tugatish" }
   ]
 });
 
@@ -46,4 +70,4 @@ if (info?.url !== expected) {
   process.exit(1);
 }
 
-console.log(`Webhook configured: ${expected}`);
+console.log(`Sirdosh webhook configured: ${expected}`);
