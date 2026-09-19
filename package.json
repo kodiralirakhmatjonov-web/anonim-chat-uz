@@ -1,6 +1,6 @@
 {
-  "name": "wifi-target-bot",
-  "version": "3.0.0",
+  "name": "iumrah-telegram-booking-bot",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -17,5 +17,5 @@
     "typescript": "5.9.2",
     "wrangler": "4.127.0"
   },
-  "description": "Minimal Telegram Wi-Fi target and owner-recovery operation bot on Cloudflare Workers"
+  "description": "iUmrah Telegram booking assistant on Cloudflare Workers"
 }

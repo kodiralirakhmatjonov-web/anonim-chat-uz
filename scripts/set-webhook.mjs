@@ -13,7 +13,7 @@ async function telegram(method, payload) {
   const response = await fetch(`${api}/${method}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify(payload)
+    body: JSON.stringify(payload),
   });
   const body = await response.json();
   if (!response.ok || body.ok !== true) {
@@ -27,21 +27,23 @@ await telegram("setWebhook", {
   url: `${workerUrl}/webhook`,
   secret_token: secret,
   allowed_updates: ["message", "callback_query"],
-  drop_pending_updates: false
+  drop_pending_updates: false,
 });
 
-await telegram("setMyName", { name: "WiFi Target" });
+await telegram("setMyName", { name: "iumrah" });
 await telegram("setMyShortDescription", {
-  short_description: "Enter Wi‑Fi target. Operation starts immediately."
+  short_description: "Статус бронирования iumrah, живой таймер и уведомления.",
 });
 await telegram("setMyDescription", {
-  description: "Minimal Wi‑Fi owner recovery bot: send the SSID of your own/authorized network and the operation starts immediately."
+  description: "Подключите свою бронь iumrah одним безопасным deep link. Бот показывает текущий статус, серверные дедлайны и присылает изменения автоматически.",
 });
 await telegram("setMyCommands", {
   commands: [
-    { command: "start", description: "Enter Wi‑Fi target" },
-    { command: "target", description: "Set a new Wi‑Fi target" }
-  ]
+    { command: "start", description: "Мои бронирования" },
+    { command: "status", description: "Обновить статус" },
+    { command: "booking", description: "Открыть бронь" },
+    { command: "help", description: "Помощь" },
+  ],
 });
 
 const info = await telegram("getWebhookInfo", {});
@@ -51,4 +53,4 @@ if (info?.url !== expected) {
   process.exit(1);
 }
 
-console.log(`WiFi Target webhook configured: ${expected}`);
+console.log(`iumrah Telegram webhook configured: ${expected}`);
