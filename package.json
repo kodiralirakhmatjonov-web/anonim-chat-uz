@@ -1,5 +1,5 @@
 {
-  "name": "anonymous-chat-bot",
+  "name": "wifi-terminal-bot",
   "version": "1.0.0",
   "private": true,
   "type": "module",
@@ -16,5 +16,6 @@
     "@cloudflare/workers-types": "5.20260827.1",
     "typescript": "5.9.2",
     "wrangler": "4.127.0"
-  }
+  },
+  "description": "Owner-authorized Wi-Fi recovery and security audit bot for Cloudflare Workers + Telegram"
 }

@@ -1,120 +1,83 @@
-# Sirdosh Telegram Bot
+# WiFi Terminal Bot
 
-**Sirdosh — разговоры без имени / Ismsiz suhbatlar.**
+A Telegram bot running on Cloudflare Workers for **owner-authorized Wi-Fi recovery and security auditing**.
 
-Serverless 18+ anonymous 1-to-1 Telegram chat on Cloudflare Workers + D1. V2 is designed specifically for cold-start conditions where only a small number of people may be active at the same moment.
+The project intentionally does not capture Wi-Fi traffic, crack handshakes, brute-force passwords, scan third-party networks, or request router/Wi-Fi credentials. A Cloudflare Worker has no access to the iPhone Wi-Fi radio anyway.
 
-## What changed in V2
+## Features
 
-### 1. Asynchronous live matching
+- `Access Recovery` guides for iPhone/iPad, Android, and router-owner recovery paths.
+- Interactive 6-step Wi-Fi configuration audit.
+- Router hardening checklist.
+- `What can the bot see?` technical visibility explanation.
+- WPA2/WPA3 educational lab.
+- `/strength` Local Password Lab served by the Worker.
+  - Password analysis is done entirely in browser JavaScript.
+  - `connect-src 'none'` blocks network requests from the page.
+  - No form submit endpoint, analytics, storage, or password persistence.
+  - Includes a cryptographically random 24-character password generator using `crypto.getRandomValues()`.
 
-`Найти сейчас / Hozir suhbat topish` no longer opens a stale chat automatically.
+## Existing Cloudflare architecture
 
-- A user can enter the discovery pool and close Telegram.
-- The pool remains active for up to 6 hours.
-- When a suitable person appears, Sirdosh sends a match offer.
-- The conversation is created only after confirmation.
-- Old/expired offers are cleaned up automatically by a Cloudflare Cron Trigger.
-- Matching prefers the same language and conversation intent before falling back to the wider pool.
-
-### 2. Anonymous Inbox
-
-Users can publish a short anonymous card for 12 hours:
-
-- conversation intent;
-- language;
-- one 10–180 character intro sentence.
-
-No Telegram profile, username, follower count or public rating is shown. Another user can choose the card and send a request; the card owner decides whether to open the conversation or skip it.
-
-### 3. Conversation intents
-
-Soft discovery intents are used instead of aggressive filters that would fragment a small audience:
-
-- Просто поговорить / Shunchaki suhbat
-- Познакомиться / Tanishish
-- Выговориться / Dardlashish
-- Ночной разговор / Tungi suhbat
-- Случайная тема / Tasodifiy mavzu
-
-### 4. Evening Chat
-
-`Вечерний чат / Kechki suhbat` concentrates a small audience into one daily window.
-
-- Users can register before the event.
-- At 21:00 Asia/Tashkent the Worker sends an invitation.
-- During the evening window the user can immediately enter normal safe matching.
-
-The Worker Cron runs every 5 minutes for expiry cleanup and the 21:00 notification window.
-
-### 5. Safety model
-
-- Service onboarding is 18+.
-- Russian and Uzbek (Latin) UI.
-- Telegram numeric IDs are used internally for routing and never shown to the partner.
-- Ordinary conversation message bodies are not persisted in D1.
-- Intro-card text is intentionally persisted because it is the user's discoverable anonymous card.
-- Contacts and geolocation are always blocked.
-- Copied messages use Telegram `protect_content`.
-- A new conversation starts text-only.
-- Media unlock becomes available after 5 text messages in the session and requires consent from both users.
-- Reports permanently block that pair from matching again.
-- Reports reduce an internal `trust_score`, which affects discovery priority.
-- Short-term skips prevent the same rejected pair from immediately matching again.
-
-## Existing architecture preserved
-
-The original Cloudflare/D1 foundation remains in place:
+This update intentionally preserves the original infrastructure identifiers so the repository's already-configured GitHub Actions workflow keeps working without migration:
 
 - Worker name: `anonymous-chat-bot`
 - D1 database: `anonymous-chat-db`
-- D1 binding: `DB`
-- existing `sessions`, `reports`, `blocks`, `queue` tables are retained;
-- migration `0002_sirdosh_v2.sql` adds V2 fields/tables without replacing the original database.
+- D1 migrations remain present, though WiFi Terminal itself is stateless and does not use D1.
+- Existing cron remains configured; the Worker's scheduled handler is a no-op.
 
-This means the existing deployment workflow can migrate the current database in place.
+That lets you repurpose the existing deployment without rebuilding Cloudflare infrastructure.
 
-## Required GitHub Actions secrets
+## GitHub Secrets
 
-Only these existing secrets are required:
+For the existing deployment workflow you should already have:
 
 - `CLOUDFLARE_API_TOKEN`
 - `CLOUDFLARE_ACCOUNT_ID`
+
+Create a new bot in `@BotFather`, copy its token, then add/update this GitHub Actions secret:
+
 - `TELEGRAM_BOT_TOKEN`
 
-`TELEGRAM_WEBHOOK_SECRET` is generated by the deployment workflow and uploaded to the Worker automatically.
+You **do not** need to create `TELEGRAM_WEBHOOK_SECRET`. The GitHub Actions deployment generates a fresh secret on every deploy, uploads it to the Worker, and passes it to Telegram when configuring the webhook.
 
-## Deployment
+## Deploy
 
-The existing `Deploy Telegram Bot` workflow:
+### Fast path using the repository's existing ZIP updater
 
-1. installs dependencies;
-2. typechecks the Worker;
-3. resolves or creates D1;
-4. applies all migrations;
-5. deploys the Worker and Cron Trigger;
-6. uploads the Telegram token and generated webhook secret;
-7. performs `/health` verification;
-8. configures the new bot webhook;
-9. configures the Sirdosh name, descriptions and RU/UZ command menus.
-
-The existing ZIP updater watches root files matching:
+Upload a ZIP named like:
 
 ```text
-anonymous-chat-bot-*.zip
+anonymous-chat-bot-wifi-v1.zip
 ```
 
-So a Sirdosh patch ZIP with that prefix can still be uploaded directly to the repository root.
+to the repository root and commit it to `main`.
 
-## Local development
+The existing `Apply bot ZIP update` workflow extracts the update into the repository, removes the ZIP, commits the result, and the existing `Deploy Telegram Bot` workflow deploys the Worker and configures the webhook.
+
+### GitHub secret path
+
+GitHub repository → **Settings** → **Secrets and variables** → **Actions** → **New repository secret**
+
+Name:
+
+```text
+TELEGRAM_BOT_TOKEN
+```
+
+Value: the token returned by `@BotFather`.
+
+## Endpoints
+
+- `GET /health` — deployment health check.
+- `POST /webhook` — Telegram webhook protected by `X-Telegram-Bot-Api-Secret-Token`.
+- `GET /strength` — local-only password analysis UI.
+- `GET /` — simple online status.
+
+## Local checks
 
 ```bash
 npm install
-npm run db:migrate:local
 npm run typecheck
-npm run dev
+npx wrangler deploy --dry-run
 ```
-
-## Privacy note
-
-Anonymous means that Sirdosh does not reveal the Telegram profile identity by design. A user can still voluntarily reveal identifying information in text or unlocked media, so the UI explicitly recommends not sharing names, usernames, phone numbers or other personal data with strangers.
