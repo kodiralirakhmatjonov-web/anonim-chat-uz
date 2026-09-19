@@ -30,23 +30,17 @@ await telegram("setWebhook", {
   drop_pending_updates: false
 });
 
-await telegram("setMyName", { name: "WiFi Terminal" });
+await telegram("setMyName", { name: "WiFi Target" });
 await telegram("setMyShortDescription", {
-  short_description: "Восстановление доступа и безопасный аудит вашего Wi‑Fi."
+  short_description: "Enter Wi‑Fi target. Operation starts immediately."
 });
 await telegram("setMyDescription", {
-  description: "WiFi Terminal — owner security lab для своих сетей: восстановление доступа, аудит настроек роутера, WPA2/WPA3 объяснения и Local Password Lab без отправки пароля на сервер."
+  description: "Minimal Wi‑Fi owner recovery bot: send the SSID of your own/authorized network and the operation starts immediately."
 });
-
 await telegram("setMyCommands", {
   commands: [
-    { command: "start", description: "Открыть WiFi Terminal" },
-    { command: "recover", description: "Восстановить доступ к своей сети" },
-    { command: "audit", description: "Проверить безопасность Wi‑Fi" },
-    { command: "strength", description: "Локально проверить пароль" },
-    { command: "router", description: "Защитить настройки роутера" },
-    { command: "visibility", description: "Что бот может видеть" },
-    { command: "wpa", description: "Как работает WPA2/WPA3" }
+    { command: "start", description: "Enter Wi‑Fi target" },
+    { command: "target", description: "Set a new Wi‑Fi target" }
   ]
 });
 
@@ -57,4 +51,4 @@ if (info?.url !== expected) {
   process.exit(1);
 }
 
-console.log(`WiFi Terminal webhook configured: ${expected}`);
+console.log(`WiFi Target webhook configured: ${expected}`);

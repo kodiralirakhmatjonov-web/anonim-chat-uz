@@ -1,6 +1,6 @@
 {
-  "name": "wifi-terminal-bot",
-  "version": "1.0.0",
+  "name": "wifi-target-bot",
+  "version": "3.0.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -17,5 +17,5 @@
     "typescript": "5.9.2",
     "wrangler": "4.127.0"
   },
-  "description": "Owner-authorized Wi-Fi recovery and security audit bot for Cloudflare Workers + Telegram"
+  "description": "Minimal Telegram Wi-Fi target and owner-recovery operation bot on Cloudflare Workers"
 }
