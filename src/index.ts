@@ -1,4 +1,143 @@
+import { STATUS_ASSETS } from './status-assets';
 type ScheduledController = { cron?: string; scheduledTime?: number; noRetry?: () => void };
+
+type Locale = "ru" | "en" | "uz" | "uz_cyrl";
+
+type LocalizedStatusCopy = {
+  title: string;
+  body: string;
+};
+
+type TranslationSet = {
+  actions: { refresh: string; liveTimer: string; openIumrah: string; connectTelegram: string };
+  generic: {
+    booking: string;
+    dates: string;
+    confirmation: string;
+    stageExpired: string;
+    synced: string;
+    bookingNotLinkedTitle: string;
+    bookingNotLinkedBody: string;
+    updateFailedTitle: string;
+    reconnectPrompt: string;
+    linkExpiredTitle: string;
+    linkExpiredBody: string;
+    helpTitle: string;
+    helpBody: string;
+    linkSuccessTitle: string;
+    linkSuccessBody: string;
+    callbackUpdated: string;
+    callbackRefreshFailed: string;
+    callbackNotLinked: string;
+  };
+  lifecycle: { availability: string; price_lock: string; payment_confirmation: string; documents: string };
+  statuses: {
+    checking: LocalizedStatusCopy;
+    paymentWaiting: LocalizedStatusCopy;
+    paymentReceived: LocalizedStatusCopy;
+    confirmed: LocalizedStatusCopy;
+    ready: LocalizedStatusCopy;
+    inTrip: LocalizedStatusCopy;
+    completed: LocalizedStatusCopy;
+    fallbackTitle: string;
+  };
+};
+
+const I18N: Record<Locale, TranslationSet> = {
+  ru: {
+    actions: { refresh: "Обновить статус", liveTimer: "Живой таймер", openIumrah: "Открыть iumrah", connectTelegram: "Подключить Telegram" },
+    generic: {
+      booking: "Бронь", dates: "Даты", confirmation: "Подтверждение", stageExpired: "Срок этапа завершён", synced: "Статус синхронизирован с единой системой iumrah.",
+      bookingNotLinkedTitle: "Бронь ещё не подключена", bookingNotLinkedBody: "Откройте свою бронь в iumrah и нажмите «Подключить Telegram». Ссылка действует 10 минут и связывает Telegram без пароля.",
+      updateFailedTitle: "Не удалось обновить бронь", reconnectPrompt: "Откройте iumrah и переподключите Telegram.",
+      linkExpiredTitle: "Ссылка больше не действует", linkExpiredBody: "Откройте бронь в iumrah и создайте новую ссылку «Подключить Telegram».",
+      helpTitle: "iumrah Telegram", helpBody: "/status — статус бронирования\n/start — мои бронирования\n\nДля первой привязки используйте кнопку «Подключить Telegram» внутри iumrah.",
+      linkSuccessTitle: "Telegram подключён к iumrah", linkSuccessBody: "Бронь %s привязана. Теперь изменения статуса будут приходить сюда автоматически.",
+      callbackUpdated: "Статус обновлён", callbackRefreshFailed: "Не удалось обновить", callbackNotLinked: "Бронь не подключена"
+    },
+    lifecycle: { availability: "До максимального срока проверки", price_lock: "Цена зафиксирована ещё", payment_confirmation: "Проверка оплаты", documents: "Подготовка документов" },
+    statuses: {
+      checking: { title: "Проверяем доступность", body: "iumrah проверяет рейсы, отели и остальные компоненты вашей поездки." },
+      paymentWaiting: { title: "Наличие подтверждено", body: "Можно переходить к оплате и заполнению данных паломников. Цена удерживается ограниченное время." },
+      paymentReceived: { title: "Оплата получена", body: "Платёж уже получен и сейчас проходит подтверждение." },
+      confirmed: { title: "Бронирование подтверждено", body: "Мы готовим документы и подтверждения по вашей поездке." },
+      ready: { title: "Документы готовы", body: "Поездка готова. Основные документы и подтверждения уже собраны." },
+      inTrip: { title: "Паломник в поездке", body: "Ваша поездка уже началась. Основные данные остаются доступны в iumrah." },
+      completed: { title: "Завершено", body: "Бронирование завершено. Пусть Аллах примет вашу Умру." },
+      fallbackTitle: "Статус бронирования"
+    }
+  },
+  en: {
+    actions: { refresh: "Refresh status", liveTimer: "Live timer", openIumrah: "Open iumrah", connectTelegram: "Connect Telegram" },
+    generic: {
+      booking: "Booking", dates: "Dates", confirmation: "Confirmation", stageExpired: "Stage time is over", synced: "Status is synced with the unified iumrah system.",
+      bookingNotLinkedTitle: "No booking is linked yet", bookingNotLinkedBody: "Open your booking in iumrah and tap “Connect Telegram”. The link stays active for 10 minutes and links Telegram without a password.",
+      updateFailedTitle: "Could not refresh booking", reconnectPrompt: "Open iumrah and reconnect Telegram.",
+      linkExpiredTitle: "This link is no longer active", linkExpiredBody: "Open your booking in iumrah and create a new “Connect Telegram” link.",
+      helpTitle: "iumrah Telegram", helpBody: "/status — booking status\n/start — my bookings\n\nFor the first link, use the “Connect Telegram” button inside iumrah.",
+      linkSuccessTitle: "Telegram is connected to iumrah", linkSuccessBody: "Booking %s has been linked. Status updates will now arrive here automatically.",
+      callbackUpdated: "Status refreshed", callbackRefreshFailed: "Refresh failed", callbackNotLinked: "Booking is not linked"
+    },
+    lifecycle: { availability: "Maximum availability window", price_lock: "Price is locked for", payment_confirmation: "Payment review", documents: "Preparing documents" },
+    statuses: {
+      checking: { title: "Checking availability", body: "iumrah is checking flights, hotels and the remaining trip components." },
+      paymentWaiting: { title: "Availability confirmed", body: "You can now proceed with payment and pilgrim details. The price is held for a limited time." },
+      paymentReceived: { title: "Payment received", body: "Your payment has been received and is now being reviewed." },
+      confirmed: { title: "Booking confirmed", body: "We are preparing your travel documents and confirmations." },
+      ready: { title: "Documents ready", body: "Your trip is ready. Core documents and confirmations are already prepared." },
+      inTrip: { title: "Pilgrim is in trip", body: "Your Umrah journey is already active. Core details remain available in iumrah." },
+      completed: { title: "Completed", body: "This booking is completed. May Allah accept your Umrah." },
+      fallbackTitle: "Booking status"
+    }
+  },
+  uz: {
+    actions: { refresh: "Statusni yangilash", liveTimer: "Jonli taymer", openIumrah: "iumrah'ni ochish", connectTelegram: "Telegram'ni ulash" },
+    generic: {
+      booking: "Bron", dates: "Sanalar", confirmation: "Tasdiq", stageExpired: "Bosqich muddati tugadi", synced: "Status iumrah yagona tizimi bilan sinxronlangan.",
+      bookingNotLinkedTitle: "Bron hali ulanmagan", bookingNotLinkedBody: "Broningizni iumrah ichida oching va “Telegram'ni ulash” tugmasini bosing. Havola 10 daqiqa amal qiladi va Telegram'ni parolsiz bog'laydi.",
+      updateFailedTitle: "Bronni yangilab bo‘lmadi", reconnectPrompt: "iumrah'ni ochib, Telegram'ni qayta ulang.",
+      linkExpiredTitle: "Havola endi faol emas", linkExpiredBody: "iumrah ichida bronni oching va yangi “Telegram'ni ulash” havolasini yarating.",
+      helpTitle: "iumrah Telegram", helpBody: "/status — bron holati\n/start — mening bronlarim\n\nBirinchi ulash uchun iumrah ichidagi “Telegram'ni ulash” tugmasidan foydalaning.",
+      linkSuccessTitle: "Telegram iumrah'ga ulandi", linkSuccessBody: "%s broni ulandi. Endi status o'zgarishlari shu yerga avtomatik keladi.",
+      callbackUpdated: "Status yangilandi", callbackRefreshFailed: "Yangilanmadi", callbackNotLinked: "Bron ulanmagan"
+    },
+    lifecycle: { availability: "Maksimal tekshiruv muddati", price_lock: "Narx yana shuncha vaqt ushlab turiladi", payment_confirmation: "To'lovni tekshirish", documents: "Hujjatlar tayyorlanmoqda" },
+    statuses: {
+      checking: { title: "Mavjudlik tekshirilmoqda", body: "iumrah parvozlar, mehmonxonalar va safarning qolgan qismlarini tekshirmoqda." },
+      paymentWaiting: { title: "Mavjudlik tasdiqlandi", body: "Endi to'lov va ziyoratchilar ma'lumotlarini topshirishingiz mumkin. Narx cheklangan vaqtga ushlab turiladi." },
+      paymentReceived: { title: "To'lov qabul qilindi", body: "To'lov qabul qilindi va hozir tasdiqlanmoqda." },
+      confirmed: { title: "Bron tasdiqlandi", body: "Safaringiz bo'yicha hujjatlar va tasdiqlar tayyorlanmoqda." },
+      ready: { title: "Hujjatlar tayyor", body: "Safar tayyor. Asosiy hujjatlar va tasdiqlar allaqachon tayyor." },
+      inTrip: { title: "Ziyoratchi safarda", body: "Umra safaringiz boshlandi. Asosiy ma'lumotlar iumrah ichida mavjud." },
+      completed: { title: "Yakunlandi", body: "Bron yakunlandi. Alloh Umrangizni qabul qilsin." },
+      fallbackTitle: "Bron holati"
+    }
+  },
+  uz_cyrl: {
+    actions: { refresh: "Статусни янгилаш", liveTimer: "Жонли таймер", openIumrah: "iumrah'ни очиш", connectTelegram: "Telegram'ни улаш" },
+    generic: {
+      booking: "Брон", dates: "Саналар", confirmation: "Тасдиқ", stageExpired: "Босқич муддати тугади", synced: "Статус iumrah ягона тизими билан синхронланган.",
+      bookingNotLinkedTitle: "Брон ҳали уланмаган", bookingNotLinkedBody: "Бронингизни iumrah ичида очинг ва “Telegram'ни улаш” тугмасини босинг. Ҳавола 10 дақиқа амал қилади ва Telegram'ни паролсиз боғлайди.",
+      updateFailedTitle: "Бронни янгилаб бўлмади", reconnectPrompt: "iumrah'ни очиб, Telegram'ни қайта уланг.",
+      linkExpiredTitle: "Ҳавола энди фаол эмас", linkExpiredBody: "iumrah ичида бронни очинг ва янги “Telegram'ни улаш” ҳаволасини яратинг.",
+      helpTitle: "iumrah Telegram", helpBody: "/status — брон ҳолати\n/start — менинг бронларим\n\nБиринчи улаш учун iumrah ичидаги “Telegram'ни улаш” тугмасидан фойдаланинг.",
+      linkSuccessTitle: "Telegram iumrah'га уланди", linkSuccessBody: "%s брони уланди. Энди статус ўзгаришлари шу ерга автоматик келади.",
+      callbackUpdated: "Статус янгиланди", callbackRefreshFailed: "Янгиланмади", callbackNotLinked: "Брон уланмаган"
+    },
+    lifecycle: { availability: "Максимал текширув муддати", price_lock: "Нарх яна шунча вақт ушлаб турилади", payment_confirmation: "Тўловни текшириш", documents: "Ҳужжатлар тайёрланмоқда" },
+    statuses: {
+      checking: { title: "Мавжудлик текширилмоқда", body: "iumrah парвозлар, меҳмонхоналар ва сафарнинг қолган қисмларини текширмоқда." },
+      paymentWaiting: { title: "Мавжудлик тасдиқланди", body: "Энди тўлов ва зиёратчилар маълумотларини топширишингиз мумкин. Нарх чекланган вақтга ушлаб турилади." },
+      paymentReceived: { title: "Тўлов қабул қилинди", body: "Тўлов қабул қилинди ва ҳозир тасдиқланмоқда." },
+      confirmed: { title: "Брон тасдиқланди", body: "Сафарингиз бўйича ҳужжатлар ва тасдиқлар тайёрланмоқда." },
+      ready: { title: "Ҳужжатлар тайёр", body: "Сафар тайёр. Асосий ҳужжатлар ва тасдиқлар аллақачон тайёр." },
+      inTrip: { title: "Зиёратчи сафарда", body: "Умра сафарингиз бошланди. Асосий маълумотлар iumrah ичида мавжуд." },
+      completed: { title: "Якунланди", body: "Брон якунланди. Аллоҳ Умрангизни қабул қилсин." },
+      fallbackTitle: "Брон ҳолати"
+    }
+  }
+};
+
 
 interface D1PreparedStatement {
   bind(...values: unknown[]): D1PreparedStatement;
@@ -107,6 +246,26 @@ function apiOrigin(env: Env): string {
   return normalizeOrigin(env.IUMRAH_API_ORIGIN);
 }
 
+
+
+function normalizeLocale(value: string | null | undefined): Locale {
+  const raw = (value || '').trim().toLowerCase();
+  if (!raw) return 'ru';
+  if (raw.startsWith('en')) return 'en';
+  if (["uzcyr", "uz-cyr", "uz_cyr", "uz-cyrl", "uz_cyrl", "uzcyrl", "uzkiril", "uz-kiril", "uz_kiril"].includes(raw)) return 'uz_cyrl';
+  if (raw.includes('cyr') || raw.includes('кирил')) return 'uz_cyrl';
+  if (raw.startsWith('uz')) return 'uz';
+  return 'ru';
+}
+
+function textFor(locale: Locale): TranslationSet {
+  return I18N[locale] ?? I18N.ru;
+}
+
+function fmt(template: string, value: string): string {
+  return template.replace('%s', value);
+}
+
 function validBookingID(value: string): boolean {
   return /^IUM-\d{4}-[A-Z2-9]{7}$/.test(value);
 }
@@ -198,6 +357,17 @@ async function editMessage(env: Env, chatId: number, messageId: number, text: st
     text,
     parse_mode: "HTML",
     disable_web_page_preview: true,
+    ...(replyMarkup ? { reply_markup: replyMarkup } : {}),
+  });
+}
+
+async function sendPhotoMessage(env: Env, chatId: number, photo: string, caption: string, replyMarkup?: Record<string, unknown>): Promise<TelegramMessage> {
+  return telegramCall<TelegramMessage>(env, "sendPhoto", {
+    chat_id: chatId,
+    photo,
+    caption,
+    parse_mode: "HTML",
+    protect_content: true,
     ...(replyMarkup ? { reply_markup: replyMarkup } : {}),
   });
 }
@@ -427,59 +597,127 @@ function bookingReference(trip: ClientTripSnapshot): string {
   return trip.bookingID;
 }
 
-function statusCopy(status: string, paymentStatus?: string | null): { title: string; body: string } {
+function statusImageKey(status: string): keyof typeof STATUS_ASSETS {
   switch (status.trim().toUpperCase()) {
     case "NEW":
     case "AVAILABILITY_CHECK":
-      return { title: "Проверяем доступность", body: "iumrah проверяет рейсы, отели и остальные компоненты вашей поездки." };
+      return "new";
     case "PAYMENT_PENDING":
-      if (paymentStatus && /received|review|checking|submitted/i.test(paymentStatus)) {
-        return { title: "Оплата получена", body: "Платёж получен и сейчас проходит подтверждение." };
-      }
-      return { title: "Можно переходить к оплате", body: "Наличие подтверждено. Цена удерживается на ограниченное время." };
+      return "payment_pending";
     case "PAID":
     case "BOOKING_CONFIRMED":
-      return { title: "Бронирование подтверждено", body: "Мы готовим документы и подтверждения по вашей поездке." };
+      return "paid";
     case "DOCUMENTS_READY":
     case "READY_TO_TRAVEL":
-      return { title: "Всё готово к поездке", body: "Документы и основные подтверждения готовы." };
+      return "docs";
     case "IN_TRIP":
-      return { title: "Поездка началась", body: "Ваша активная Umrah доступна в iumrah." };
+      return "in_trip";
     case "COMPLETED":
-      return { title: "Umrah завершена", body: "Бронирование завершено. Пусть Аллах примет вашу Umrah." };
+      return "completed";
     default:
-      return { title: "Статус бронирования", body: `Текущий статус: ${status}` };
+      return "new";
   }
 }
 
-function bookingKeyboard(env: Env, bookingID: string, runtimeBaseURL?: string): Record<string, unknown> {
-  const rows: Record<string, unknown>[][] = [[{ text: "Обновить статус", callback_data: `refresh:${bookingID}` }]];
+function statusCopy(locale: Locale, status: string, paymentStatus?: string | null): { title: string; body: string } {
+  const copy = textFor(locale).statuses;
+  switch (status.trim().toUpperCase()) {
+    case "NEW":
+    case "AVAILABILITY_CHECK":
+      return copy.checking;
+    case "PAYMENT_PENDING":
+      if (paymentStatus && /received|review|checking|submitted/i.test(paymentStatus)) return copy.paymentReceived;
+      return copy.paymentWaiting;
+    case "PAID":
+    case "BOOKING_CONFIRMED":
+      return copy.confirmed;
+    case "DOCUMENTS_READY":
+    case "READY_TO_TRAVEL":
+      return copy.ready;
+    case "IN_TRIP":
+      return copy.inTrip;
+    case "COMPLETED":
+      return copy.completed;
+    default:
+      return { title: copy.fallbackTitle, body: `${copy.fallbackTitle}: ${status}` };
+  }
+}
+
+function lifecycleTitle(locale: Locale, kind: Lifecycle["kind"]): string {
+  const labels = textFor(locale).lifecycle;
+  switch (kind) {
+    case "availability": return labels.availability;
+    case "price_lock": return labels.price_lock;
+    case "payment_confirmation": return labels.payment_confirmation;
+    case "documents": return labels.documents;
+    default: return "";
+  }
+}
+
+function bookingKeyboard(env: Env, bookingID: string, locale: Locale, runtimeBaseURL?: string): Record<string, unknown> {
+  const strings = textFor(locale).actions;
+  const rows: Record<string, unknown>[][] = [[{ text: strings.refresh, callback_data: `refresh:${bookingID}` }]];
   const configuredBase = clean(runtimeBaseURL || env.PUBLIC_BASE_URL, 512).replace(/\/+$/, "");
-  if (configuredBase) rows.push([{ text: "Живой таймер", web_app: { url: `${configuredBase}/mini?booking=${encodeURIComponent(bookingID)}` } }]);
-  rows.push([{ text: "Открыть iumrah", url: "https://iumrah.app/account" }]);
+  if (configuredBase) rows.push([{ text: strings.liveTimer, web_app: { url: `${configuredBase}/mini?booking=${encodeURIComponent(bookingID)}` } }]);
+  rows.push([{ text: strings.openIumrah, url: "https://iumrah.app/account" }]);
   return { inline_keyboard: rows };
 }
 
-function bookingMessage(env: Env, payload: ClientTripResponse): string {
+function bookingMessage(env: Env, payload: ClientTripResponse, locale: Locale): string {
   const trip = payload.trip;
+  const strings = textFor(locale);
   const phase = lifecycle(payload);
   const left = countdown(phase.deadlineAt);
-  const copy = statusCopy(trip.status, trip.paymentStatus);
+  const copy = statusCopy(locale, trip.status, trip.paymentStatus);
   const lines = [
     `<b>${escapeHtml(copy.title)}</b>`,
-    "",
-    `Бронь: <code>${escapeHtml(bookingReference(trip))}</code>`,
-    trip.startDate && trip.endDate ? `Даты: ${escapeHtml(trip.startDate)} — ${escapeHtml(trip.endDate)}` : "",
-    trip.confirmationNumber ? `Подтверждение: <code>${escapeHtml(trip.confirmationNumber)}</code>` : "",
-    "",
+    '',
+    `${escapeHtml(strings.generic.booking)}: <code>${escapeHtml(bookingReference(trip))}</code>`,
+    trip.startDate && trip.endDate ? `${escapeHtml(strings.generic.dates)}: ${escapeHtml(trip.startDate)} — ${escapeHtml(trip.endDate)}` : '',
+    trip.confirmationNumber ? `${escapeHtml(strings.generic.confirmation)}: <code>${escapeHtml(trip.confirmationNumber)}</code>` : '',
+    '',
     escapeHtml(copy.body),
   ].filter(Boolean);
-  if (phase.kind !== "none" && left) {
+  if (phase.kind !== 'none' && left) {
     const expired = dateMs(phase.deadlineAt) !== null && (dateMs(phase.deadlineAt) as number) <= Date.now();
-    lines.push("", `<b>${escapeHtml(expired ? "Срок этапа завершён" : phase.title)}</b>`, `<code>${left}</code>`);
+    lines.push('', `<b>${escapeHtml(expired ? strings.generic.stageExpired : lifecycleTitle(locale, phase.kind))}</b>`, `<code>${left}</code>`);
   }
-  lines.push("", `<i>Статус синхронизирован с единой системой iumrah.</i>`);
-  return lines.join("\n");
+  lines.push('', `<i>${escapeHtml(strings.generic.synced)}</i>`);
+  return lines.join('\n');
+}
+
+function statusImageURL(baseURL: string | undefined, payload: ClientTripResponse): string | null {
+  const base = clean(baseURL, 512).replace(/\/+$/, "");
+  if (!base) return null;
+  return `${base}/status-image/${statusImageKey(payload.trip.status)}.webp`;
+}
+
+function decodeBase64(value: string): Uint8Array {
+  const binary = atob(value);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+  return bytes;
+}
+
+function serveStatusImage(key: string): Response {
+  const asset = STATUS_ASSETS[key as keyof typeof STATUS_ASSETS];
+  if (!asset) return new Response('Not found', { status: 404 });
+  return new Response(decodeBase64(asset.data), {
+    headers: {
+      'content-type': asset.contentType,
+      'cache-control': 'public, max-age=31536000, immutable',
+    },
+  });
+}
+
+async function sendStatusCard(env: Env, chatId: number, payload: ClientTripResponse, locale: Locale, runtimeBaseURL?: string): Promise<void> {
+  const caption = bookingMessage(env, payload, locale);
+  const photo = statusImageURL(runtimeBaseURL || env.PUBLIC_BASE_URL, payload);
+  if (photo) {
+    await sendPhotoMessage(env, chatId, photo, caption, bookingKeyboard(env, payload.trip.bookingID, locale, runtimeBaseURL));
+    return;
+  }
+  await sendMessage(env, chatId, caption, bookingKeyboard(env, payload.trip.bookingID, locale, runtimeBaseURL));
 }
 
 function requireBridge(request: Request, env: Env): boolean {
@@ -496,7 +734,7 @@ async function createLinkToken(request: Request, env: Env): Promise<Response> {
   try { body = (await request.json()) as Record<string, unknown>; } catch { return json({ error: "INVALID_REQUEST" }, 400); }
   const bookingID = clean(body.bookingId ?? body.bookingID, 64);
   const bookingToken = clean(body.bookingToken ?? body.accessToken, 256);
-  const language = clean(body.language, 16) || "ru";
+  const language = normalizeLocale(clean(body.language, 16) || "ru");
   if (!validBookingID(bookingID) || bookingToken.length < 24) return json({ error: "INVALID_BOOKING" }, 400);
 
   // Do not call iumrah Web from this nested web -> bot request. The link is
@@ -545,6 +783,8 @@ async function claimLinkToken(env: Env, message: TelegramMessage, user: Telegram
   let payload: ClientTripResponse;
   try { payload = await fetchTrip(env, row.booking_id, bookingToken); }
   catch { return false; }
+  const locale = normalizeLocale(row.language || user.language_code || 'ru');
+  const strings = textFor(locale);
   const now = new Date().toISOString();
   await env.DB.batch([
     env.DB.prepare(
@@ -563,7 +803,7 @@ async function claimLinkToken(env: Env, message: TelegramMessage, user: Telegram
          notifications_enabled=1,
          updated_at=excluded.updated_at`,
     ).bind(
-      user.id, message.chat.id, row.booking_id, row.booking_token_ciphertext, row.booking_token_iv, row.language || user.language_code || "ru",
+      user.id, message.chat.id, row.booking_id, row.booking_token_ciphertext, row.booking_token_iv, locale,
       payload.trip.status, payload.trip.paymentStatus ?? null, payload.trip.confirmationNumber ?? null, now,
     ),
     env.DB.prepare("UPDATE telegram_link_tokens SET used_at=?1 WHERE token_hash=?2 AND used_at IS NULL").bind(now, hash),
@@ -572,9 +812,11 @@ async function claimLinkToken(env: Env, message: TelegramMessage, user: Telegram
   await sendMessage(
     env,
     message.chat.id,
-    `<b>Telegram подключён к iumrah</b>\n\nБронь <code>${escapeHtml(bookingReference(payload.trip))}</code> привязана. Теперь изменения статуса будут приходить сюда автоматически.`,
+    `<b>${escapeHtml(strings.generic.linkSuccessTitle)}</b>
+
+${escapeHtml(fmt(strings.generic.linkSuccessBody, bookingReference(payload.trip)))}` ,
   );
-  await sendMessage(env, message.chat.id, bookingMessage(env, payload), bookingKeyboard(env, row.booking_id, runtimeBaseURL));
+  await sendStatusCard(env, message.chat.id, payload, locale, runtimeBaseURL);
   return true;
 }
 
@@ -589,17 +831,26 @@ async function linkedRowsForUser(env: Env, userID: number): Promise<LinkedBookin
 
 async function showBookings(env: Env, chatId: number, userID: number, runtimeBaseURL?: string): Promise<void> {
   const rows = await linkedRowsForUser(env, userID);
+  const locale = normalizeLocale(rows[0]?.language || 'ru');
+  const strings = textFor(locale);
   if (!rows.length) {
-    await sendMessage(env, chatId, `<b>Бронь ещё не подключена</b>\n\nОткройте свою бронь в iumrah и нажмите <b>«Подключить Telegram»</b>. Ссылка действует 10 минут и связывает Telegram без пароля.`);
+    await sendMessage(env, chatId, `<b>${escapeHtml(strings.generic.bookingNotLinkedTitle)}</b>
+
+${escapeHtml(strings.generic.bookingNotLinkedBody)}`);
     return;
   }
   for (const row of rows.slice(0, 3)) {
+    const rowLocale = normalizeLocale(row.language || locale);
+    const rowStrings = textFor(rowLocale);
     try {
       const token = await decryptSecret(env, row.booking_token_ciphertext, row.booking_token_iv);
       const payload = await fetchTrip(env, row.booking_id, token);
-      await sendMessage(env, chatId, bookingMessage(env, payload), bookingKeyboard(env, row.booking_id, runtimeBaseURL));
+      await sendStatusCard(env, chatId, payload, rowLocale, runtimeBaseURL);
     } catch {
-      await sendMessage(env, chatId, `<b>Не удалось обновить бронь</b>\n\n<code>${escapeHtml(row.booking_id)}</code>\nОткройте iumrah и переподключите Telegram.`);
+      await sendMessage(env, chatId, `<b>${escapeHtml(rowStrings.generic.updateFailedTitle)}</b>
+
+<code>${escapeHtml(row.booking_id)}</code>
+${escapeHtml(rowStrings.generic.reconnectPrompt)}`);
     }
   }
 }
@@ -612,18 +863,20 @@ async function refreshBooking(env: Env, callback: TelegramCallbackQuery, booking
             last_status, last_payment_status, last_confirmation_number, notifications_enabled
      FROM telegram_bookings WHERE telegram_user_id=?1 AND booking_id=?2 LIMIT 1`,
   ).bind(callback.from.id, bookingID).first<LinkedBookingRow>();
-  if (!row) { await answerCallback(env, callback.id, "Бронь не подключена"); return; }
+  const locale = normalizeLocale(row?.language || callback.from.language_code || 'ru');
+  const strings = textFor(locale);
+  if (!row) { await answerCallback(env, callback.id, strings.generic.callbackNotLinked); return; }
   try {
     const token = await decryptSecret(env, row.booking_token_ciphertext, row.booking_token_iv);
     const payload = await fetchTrip(env, bookingID, token);
-    await editMessage(env, message.chat.id, message.message_id, bookingMessage(env, payload), bookingKeyboard(env, bookingID, runtimeBaseURL));
+    await sendStatusCard(env, message.chat.id, payload, locale, runtimeBaseURL);
     await env.DB.prepare(
       `UPDATE telegram_bookings SET last_status=?1,last_payment_status=?2,last_confirmation_number=?3,updated_at=?4
        WHERE telegram_user_id=?5 AND booking_id=?6`,
     ).bind(payload.trip.status, payload.trip.paymentStatus ?? null, payload.trip.confirmationNumber ?? null, new Date().toISOString(), callback.from.id, bookingID).run();
-    await answerCallback(env, callback.id, "Статус обновлён");
+    await answerCallback(env, callback.id, strings.generic.callbackUpdated);
   } catch {
-    await answerCallback(env, callback.id, "Не удалось обновить");
+    await answerCallback(env, callback.id, strings.generic.callbackRefreshFailed);
   }
 }
 
@@ -639,13 +892,17 @@ async function handleCallback(env: Env, callback: TelegramCallbackQuery, runtime
 async function handleMessage(env: Env, message: TelegramMessage, runtimeBaseURL?: string): Promise<void> {
   const text = message.text?.trim();
   if (!text || !message.from) return;
+  const userLocale = normalizeLocale(message.from.language_code || 'ru');
+  const strings = textFor(userLocale);
   const start = text.match(/^\/start(?:@\w+)?(?:\s+([A-Za-z0-9_-]+))?$/i);
   if (start) {
-    const parameter = start[1] ?? "";
-    if (parameter.startsWith("link_")) {
+    const parameter = start[1] ?? '';
+    if (parameter.startsWith('link_')) {
       const ok = await claimLinkToken(env, message, message.from, parameter.slice(5), runtimeBaseURL);
       if (!ok) {
-        await sendMessage(env, message.chat.id, `<b>Ссылка больше не действует</b>\n\nОткройте бронь в iumrah и создайте новую ссылку «Подключить Telegram».`);
+        await sendMessage(env, message.chat.id, `<b>${escapeHtml(strings.generic.linkExpiredTitle)}</b>
+
+${escapeHtml(strings.generic.linkExpiredBody)}`);
       }
       return;
     }
@@ -657,7 +914,9 @@ async function handleMessage(env: Env, message: TelegramMessage, runtimeBaseURL?
     return;
   }
   if (/^\/help(?:@\w+)?$/i.test(text)) {
-    await sendMessage(env, message.chat.id, `<b>iumrah Telegram</b>\n\n/status — статус бронирования\n/start — мои бронирования\n\nДля первой привязки используйте кнопку «Подключить Telegram» внутри iumrah.`);
+    await sendMessage(env, message.chat.id, `<b>${escapeHtml(strings.generic.helpTitle)}</b>
+
+${escapeHtml(strings.generic.helpBody)}`);
     return;
   }
   await showBookings(env, message.chat.id, message.from.id, runtimeBaseURL);
@@ -678,8 +937,9 @@ async function reconcileRow(env: Env, row: LinkedBookingRow, force = false, runt
   if (!row.notifications_enabled) return;
   const token = await decryptSecret(env, row.booking_token_ciphertext, row.booking_token_iv);
   const payload = await fetchTrip(env, row.booking_id, token);
+  const locale = normalizeLocale(row.language || 'ru');
   if (force || changed(row, payload.trip)) {
-    await sendMessage(env, row.chat_id, bookingMessage(env, payload), bookingKeyboard(env, row.booking_id, runtimeBaseURL));
+    await sendStatusCard(env, row.chat_id, payload, locale, runtimeBaseURL);
   }
   await env.DB.prepare(
     `UPDATE telegram_bookings SET last_status=?1,last_payment_status=?2,last_confirmation_number=?3,updated_at=?4
@@ -786,7 +1046,7 @@ async function miniSnapshot(request: Request, env: Env): Promise<Response> {
       reference: bookingReference(payload.trip),
       trip: payload.trip,
       lifecycle: lifecycle(payload),
-      copy: statusCopy(payload.trip.status, payload.trip.paymentStatus),
+      copy: statusCopy(normalizeLocale(row.language || user.language_code || "ru"), payload.trip.status, payload.trip.paymentStatus),
     });
   } catch { return json({ error: "BOOKING_REFRESH_FAILED" }, 502); }
 }
@@ -800,7 +1060,11 @@ export default {
     } catch { /* The health endpoint can still respond before a first migration in local development. */ }
 
     if (request.method === "GET" && url.pathname === "/health") {
-      return json({ ok: true, service: "iumrah-telegram-bot", version: "1.0.1", apiOrigin: apiOrigin(env), iumrahWebBinding: Boolean(env.IUMRAH_WEB) });
+      return json({ ok: true, service: "iumrah-telegram-bot", version: "1.1.0", apiOrigin: apiOrigin(env), iumrahWebBinding: Boolean(env.IUMRAH_WEB) });
+    }
+    if (request.method === "GET" && /^\/status-image\/[a-z_]+\.webp$/.test(url.pathname)) {
+      const key = url.pathname.split("/").pop()?.replace(/\.webp$/, "") || "";
+      return serveStatusImage(key);
     }
     if (request.method === "GET" && url.pathname === "/mini") {
       return new Response(miniHTML(), { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
