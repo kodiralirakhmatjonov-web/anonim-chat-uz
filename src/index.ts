@@ -12,6 +12,10 @@ interface D1Database {
   batch(statements: D1PreparedStatement[]): Promise<unknown[]>;
 }
 
+type FetcherLike = {
+  fetch(input: Request | string | URL, init?: RequestInit): Promise<Response>;
+};
+
 interface Env {
   TELEGRAM_BOT_TOKEN: string;
   TELEGRAM_WEBHOOK_SECRET: string;
@@ -20,6 +24,7 @@ interface Env {
   TELEGRAM_BOT_USERNAME?: string;
   PUBLIC_BASE_URL?: string;
   LINK_ENCRYPTION_KEY?: string;
+  IUMRAH_WEB?: FetcherLike;
   DB: D1Database;
 }
 
@@ -281,8 +286,34 @@ function parseWebBookingPayload(value: unknown): ClientTripResponse | null {
 
 async function fetchTrip(env: Env, bookingID: string, bookingToken: string): Promise<ClientTripResponse> {
   const headers = { accept: "application/json", "x-booking-token": bookingToken };
-  let operationalStatus = 0;
 
+  // Primary path: stay inside Cloudflare. This avoids a Worker -> public
+  // iumrah.app round-trip, which can produce Cloudflare 522 even while the
+  // iumrah Web Worker itself is healthy. The web booking endpoint validates
+  // the same high-entropy booking token against the canonical D1 booking row.
+  if (env.IUMRAH_WEB && typeof env.IUMRAH_WEB.fetch === "function") {
+    try {
+      const internalRequest = new Request(
+        `https://iumrah-web.internal/api/bookings/${encodeURIComponent(bookingID)}`,
+        { method: "GET", headers, redirect: "manual" },
+      );
+      const response = await env.IUMRAH_WEB.fetch(internalRequest);
+      if (response.ok) {
+        const payload = parseWebBookingPayload(await response.json());
+        if (payload && payload.trip.bookingID === bookingID) return payload;
+        throw new Error("INVALID_WEB_BOOKING_RESPONSE");
+      }
+      if (response.status === 404 || response.status === 401) throw new Error("BOOKING_NOT_FOUND");
+      console.error("internal iumrah web booking lookup failed", bookingID, response.status);
+    } catch (error) {
+      if (error instanceof Error && (error.message === "BOOKING_NOT_FOUND" || error.message === "INVALID_WEB_BOOKING_RESPONSE")) throw error;
+      console.error("internal iumrah web service binding failed; trying public fallback", bookingID, error);
+    }
+  }
+
+  // Compatibility fallback for local development / deployments where the
+  // Service Binding has not been applied yet.
+  let operationalStatus = 0;
   try {
     const response = await fetch(`${apiOrigin(env)}/api/catalog/hotels/client/trips/${encodeURIComponent(bookingID)}`, {
       method: "GET",
@@ -295,13 +326,9 @@ async function fetchTrip(env: Env, bookingID: string, bookingToken: string): Pro
       if (payload && payload.trip.bookingID === bookingID) return payload;
     }
   } catch (error) {
-    console.error("operational trip lookup failed; trying web booking fallback", bookingID, error);
+    console.error("operational trip lookup failed; trying public web booking fallback", bookingID, error);
   }
 
-  // A web booking exists immediately after checkout, while the operational trip
-  // mirror may still be synchronizing. Validate the same high-entropy token
-  // against the authenticated web booking endpoint so Telegram can be linked
-  // immediately without weakening authorization.
   try {
     const fallback = await fetch(`${apiOrigin(env)}/api/bookings/${encodeURIComponent(bookingID)}`, {
       method: "GET",
@@ -472,9 +499,10 @@ async function createLinkToken(request: Request, env: Env): Promise<Response> {
   const language = clean(body.language, 16) || "ru";
   if (!validBookingID(bookingID) || bookingToken.length < 24) return json({ error: "INVALID_BOOKING" }, 400);
 
-  let snapshot: ClientTripResponse;
-  try { snapshot = await fetchTrip(env, bookingID, bookingToken); }
-  catch (error) { return json({ error: error instanceof Error ? error.message : "BOOKING_VALIDATION_FAILED" }, 404); }
+  // Do not call iumrah Web from this nested web -> bot request. The link is
+  // only a short-lived claim ticket; the booking token is validated when the
+  // user actually claims it in Telegram (bot -> iumrah Web via Service Binding).
+  // Invalid/spoofed tokens therefore never become linked bookings and expose no data.
 
   const raw = base64Url(crypto.getRandomValues(new Uint8Array(32)));
   const tokenHash = await sha256Hex(raw);
@@ -498,7 +526,7 @@ async function createLinkToken(request: Request, env: Env): Promise<Response> {
   }
   const startParameter = `link_${raw}`;
   const linkUrl = username ? `https://t.me/${username}?start=${startParameter}` : null;
-  return json({ ok: true, booking: { bookingID, bookingDisplayNumber: snapshot.trip.bookingDisplayNumber ?? null }, startParameter, linkUrl, expiresAt });
+  return json({ ok: true, booking: { bookingID, bookingDisplayNumber: null }, startParameter, linkUrl, expiresAt });
 }
 
 async function claimLinkToken(env: Env, message: TelegramMessage, user: TelegramUser, rawToken: string, runtimeBaseURL?: string): Promise<boolean> {
@@ -772,7 +800,7 @@ export default {
     } catch { /* The health endpoint can still respond before a first migration in local development. */ }
 
     if (request.method === "GET" && url.pathname === "/health") {
-      return json({ ok: true, service: "iumrah-telegram-bot", version: "1.0.0", apiOrigin: apiOrigin(env) });
+      return json({ ok: true, service: "iumrah-telegram-bot", version: "1.0.1", apiOrigin: apiOrigin(env), iumrahWebBinding: Boolean(env.IUMRAH_WEB) });
     }
     if (request.method === "GET" && url.pathname === "/mini") {
       return new Response(miniHTML(), { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
