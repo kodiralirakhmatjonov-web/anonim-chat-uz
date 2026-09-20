@@ -245,16 +245,82 @@ function parseTripPayload(value: unknown): ClientTripResponse | null {
   return { ok: root.ok === true, trip: parsed, statusHistory: history };
 }
 
+function parseWebBookingPayload(value: unknown): ClientTripResponse | null {
+  if (!value || typeof value !== "object") return null;
+  const root = value as Record<string, unknown>;
+  const rawBooking = root.booking;
+  if (!rawBooking || typeof rawBooking !== "object") return null;
+  const booking = rawBooking as Record<string, unknown>;
+  const bookingID = clean(booking.id ?? booking.bookingID, 64);
+  const status = clean(booking.status, 64);
+  if (!bookingID || !status) return null;
+  const input = booking.input && typeof booking.input === "object" ? booking.input as Record<string, unknown> : {};
+  const trip: ClientTripSnapshot = {
+    bookingID,
+    bookingNumber: null,
+    bookingDisplayNumber: nullableString(booking.bookingDisplayNumber),
+    status,
+    paymentStatus: nullableString(booking.paymentStatus),
+    confirmationNumber: nullableString(booking.confirmationNumber),
+    startDate: nullableString(booking.startDate) ?? nullableString(input.startDate),
+    endDate: nullableString(booking.endDate) ?? nullableString(input.endDate),
+    createdAt: nullableString(booking.createdAt),
+    updatedAt: nullableString(booking.updatedAt) ?? nullableString(booking.createdAt),
+    completedAt: nullableString(booking.completedAt),
+    availabilityStartedAt: nullableString(booking.availabilityStartedAt),
+    availabilityDeadlineAt: nullableString(booking.availabilityDeadlineAt),
+    priceLockStartedAt: nullableString(booking.priceLockStartedAt),
+    priceLockExpiresAt: nullableString(booking.priceLockExpiresAt),
+    paymentReceivedAt: nullableString(booking.paymentReceivedAt),
+    paymentConfirmationDeadlineAt: nullableString(booking.paymentConfirmationDeadlineAt),
+    documentsStartedAt: nullableString(booking.documentsStartedAt),
+    documentsDeadlineAt: nullableString(booking.documentsDeadlineAt),
+  };
+  return { ok: true, trip, statusHistory: [] };
+}
+
 async function fetchTrip(env: Env, bookingID: string, bookingToken: string): Promise<ClientTripResponse> {
-  const response = await fetch(`${apiOrigin(env)}/api/catalog/hotels/client/trips/${encodeURIComponent(bookingID)}`, {
-    method: "GET",
-    headers: { accept: "application/json", "x-booking-token": bookingToken },
-    redirect: "manual",
-  });
-  if (!response.ok) throw new Error(response.status === 404 || response.status === 401 ? "BOOKING_NOT_FOUND" : `IUMRAH_API_${response.status}`);
-  const payload = parseTripPayload(await response.json());
-  if (!payload || payload.trip.bookingID !== bookingID) throw new Error("INVALID_IUMRAH_RESPONSE");
-  return payload;
+  const headers = { accept: "application/json", "x-booking-token": bookingToken };
+  let operationalStatus = 0;
+
+  try {
+    const response = await fetch(`${apiOrigin(env)}/api/catalog/hotels/client/trips/${encodeURIComponent(bookingID)}`, {
+      method: "GET",
+      headers,
+      redirect: "manual",
+    });
+    operationalStatus = response.status;
+    if (response.ok) {
+      const payload = parseTripPayload(await response.json());
+      if (payload && payload.trip.bookingID === bookingID) return payload;
+    }
+  } catch (error) {
+    console.error("operational trip lookup failed; trying web booking fallback", bookingID, error);
+  }
+
+  // A web booking exists immediately after checkout, while the operational trip
+  // mirror may still be synchronizing. Validate the same high-entropy token
+  // against the authenticated web booking endpoint so Telegram can be linked
+  // immediately without weakening authorization.
+  try {
+    const fallback = await fetch(`${apiOrigin(env)}/api/bookings/${encodeURIComponent(bookingID)}`, {
+      method: "GET",
+      headers,
+      redirect: "manual",
+    });
+    if (fallback.ok) {
+      const payload = parseWebBookingPayload(await fallback.json());
+      if (payload && payload.trip.bookingID === bookingID) return payload;
+      throw new Error("INVALID_WEB_BOOKING_RESPONSE");
+    }
+    if (fallback.status === 404 || fallback.status === 401) throw new Error("BOOKING_NOT_FOUND");
+    throw new Error(`IUMRAH_WEB_API_${fallback.status}`);
+  } catch (error) {
+    if (error instanceof Error && error.message !== "BOOKING_NOT_FOUND" && operationalStatus && operationalStatus !== 404 && operationalStatus !== 401) {
+      throw new Error(`IUMRAH_API_${operationalStatus}`);
+    }
+    throw error instanceof Error ? error : new Error("BOOKING_NOT_FOUND");
+  }
 }
 
 function dateMs(value: string | null | undefined): number | null {
