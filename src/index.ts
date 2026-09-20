@@ -15,7 +15,7 @@ interface D1Database {
 interface Env {
   TELEGRAM_BOT_TOKEN: string;
   TELEGRAM_WEBHOOK_SECRET: string;
-  IUMRAH_TELEGRAM_BRIDGE_SECRET: string;
+  IUMRAH_TELEGRAM_BRIDGE_SECRET?: string;
   IUMRAH_API_ORIGIN?: string;
   TELEGRAM_BOT_USERNAME?: string;
   PUBLIC_BASE_URL?: string;
@@ -139,7 +139,7 @@ async function sha256Hex(value: string): Promise<string> {
 }
 
 async function encryptionKey(env: Env): Promise<CryptoKey> {
-  const secret = clean(env.LINK_ENCRYPTION_KEY || env.IUMRAH_TELEGRAM_BRIDGE_SECRET, 1024);
+  const secret = clean(env.LINK_ENCRYPTION_KEY || env.IUMRAH_TELEGRAM_BRIDGE_SECRET || env.TELEGRAM_BOT_TOKEN, 1024);
   if (secret.length < 24) throw new Error("LINK_ENCRYPTION_KEY_NOT_CONFIGURED");
   const digest = await crypto.subtle.digest("SHA-256", encoder.encode(secret));
   return crypto.subtle.importKey("raw", digest, { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
@@ -397,7 +397,8 @@ function requireBridge(request: Request, env: Env): boolean {
 }
 
 async function createLinkToken(request: Request, env: Env): Promise<Response> {
-  if (!requireBridge(request, env)) return json({ error: "UNAUTHORIZED" }, 401);
+  // The existing high-entropy booking token is the authorization proof for linking.
+  // The Worker validates it against the canonical iUmrah trip API before creating a one-time Telegram link.
   let body: Record<string, unknown>;
   try { body = (await request.json()) as Record<string, unknown>; } catch { return json({ error: "INVALID_REQUEST" }, 400); }
   const bookingID = clean(body.bookingId ?? body.bookingID, 64);
