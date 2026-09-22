@@ -1089,7 +1089,14 @@ async function miniBootstrap(request: Request, env: Env): Promise<Response> {
     if (bundle) bundles.push(bundle);
   }
   if (!bundles.length) return json({ error: "BOOKING_REFRESH_FAILED" }, 502);
-  return json({ ok: true, locale, bookings: bundles });
+  let careProfile: any = null;
+  try {
+    const token = await decryptSecret(env, rows[0].booking_token_ciphertext, rows[0].booking_token_iv);
+    const team = await fetchWebJSON(env, "/api/catalog/hotels/team", token);
+    const members = Array.isArray(team.body?.members) ? team.body.members : [];
+    careProfile = members.find((member: any) => member?.isOwner === true) || members[0] || null;
+  } catch { careProfile = null; }
+  return json({ ok: true, locale, bookings: bundles, careProfile });
 }
 
 async function miniHotelContext(request: Request, env: Env): Promise<{ user: TelegramUser; row: LinkedBookingRow; token: string; body: Record<string, unknown> } | Response> {
@@ -1204,6 +1211,92 @@ async function miniAction(request: Request, env: Env): Promise<Response> {
   return json({ ok: true, result: result.body });
 }
 
+async function miniCareMessages(request: Request, env: Env): Promise<Response> {
+  const context = await miniHotelContext(request, env);
+  if (context instanceof Response) return context;
+  const bookingID = context.row.booking_id;
+  const result = await fetchWebJSON(env, `/api/catalog/hotels/client/chats/${encodeURIComponent(bookingID)}/messages`, context.token);
+  if (result.status < 200 || result.status >= 300) return json({ error: result.body?.error || `CARE_MESSAGES_${result.status}` }, result.status || 502);
+  try {
+    await fetchWebJSON(env, `/api/catalog/hotels/client/chats/${encodeURIComponent(bookingID)}/read`, context.token, {
+      method: "POST", body: JSON.stringify({}),
+    });
+  } catch { /* read receipts are best-effort */ }
+  return json({ ok: true, bookingID, messages: Array.isArray(result.body?.messages) ? result.body.messages : [] });
+}
+
+async function miniCareSend(request: Request, env: Env): Promise<Response> {
+  const context = await miniHotelContext(request, env);
+  if (context instanceof Response) return context;
+  const bookingID = context.row.booking_id;
+  const body = clean(context.body.message, 4000);
+  if (!body) return json({ error: "EMPTY_MESSAGE" }, 400);
+  const result = await fetchWebJSON(env, `/api/catalog/hotels/client/chats/${encodeURIComponent(bookingID)}/messages`, context.token, {
+    method: "POST",
+    body: JSON.stringify({ body, clientMessageID: crypto.randomUUID() }),
+  });
+  if (result.status < 200 || result.status >= 300) return json({ error: result.body?.error || `CARE_SEND_${result.status}` }, result.status || 502);
+  return json({ ok: true, message: result.body?.message ?? null });
+}
+
+function decodeBase64Payload(value: string): Uint8Array | null {
+  try {
+    const normalized = value.includes(",") ? value.slice(value.indexOf(",") + 1) : value;
+    const binary = atob(normalized);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+    return bytes;
+  } catch { return null; }
+}
+
+async function miniCarePhoto(request: Request, env: Env): Promise<Response> {
+  const context = await miniHotelContext(request, env);
+  if (context instanceof Response) return context;
+  const bookingID = context.row.booking_id;
+  const raw = clean(context.body.dataBase64, 12_000_000);
+  const bytes = decodeBase64Payload(raw);
+  if (!bytes || bytes.byteLength < 16 || bytes.byteLength > 7_500_000) return json({ error: "INVALID_IMAGE" }, 400);
+  if (!env.IUMRAH_WEB || typeof env.IUMRAH_WEB.fetch !== "function") return json({ error: "IUMRAH_WEB_BINDING_MISSING" }, 503);
+  const headers = new Headers({ accept: "application/json", "content-type": "image/jpeg", "x-booking-token": context.token });
+  const response = await env.IUMRAH_WEB.fetch(new Request(
+    `https://iumrah-web.internal/api/catalog/hotels/client/chats/${encodeURIComponent(bookingID)}/attachments`,
+    { method: "POST", headers, body: bytes, redirect: "manual" },
+  ));
+  let body: any = null;
+  try { body = await response.json(); } catch { body = null; }
+  if (!response.ok) return json({ error: body?.error || `CARE_PHOTO_${response.status}` }, response.status || 502);
+  return json({ ok: true, message: body?.message ?? null });
+}
+
+function normalizedCareAttachmentPath(raw: string, bookingID: string): string | null {
+  try {
+    const value = raw.trim();
+    if (!value) return null;
+    const url = value.startsWith("http://") || value.startsWith("https://") ? new URL(value) : new URL(value, "https://iumrah-web.internal");
+    const prefix = `/api/catalog/hotels/client/chats/${encodeURIComponent(bookingID)}/`;
+    return url.pathname.startsWith(prefix) ? `${url.pathname}${url.search}` : null;
+  } catch { return null; }
+}
+
+async function miniCareAttachment(request: Request, env: Env): Promise<Response> {
+  const context = await miniHotelContext(request, env);
+  if (context instanceof Response) return context;
+  const bookingID = context.row.booking_id;
+  const path = normalizedCareAttachmentPath(clean(context.body.path, 2048), bookingID);
+  if (!path) return json({ error: "INVALID_ATTACHMENT" }, 400);
+  if (!env.IUMRAH_WEB || typeof env.IUMRAH_WEB.fetch !== "function") return json({ error: "IUMRAH_WEB_BINDING_MISSING" }, 503);
+  const response = await env.IUMRAH_WEB.fetch(new Request(`https://iumrah-web.internal${path}`, {
+    method: "GET",
+    headers: { accept: "image/*", "x-booking-token": context.token },
+    redirect: "manual",
+  }));
+  if (!response.ok) return json({ error: `CARE_ATTACHMENT_${response.status}` }, response.status || 502);
+  const headers = new Headers();
+  headers.set("content-type", response.headers.get("content-type") || "image/jpeg");
+  headers.set("cache-control", "private, max-age=300");
+  return new Response(response.body, { status: 200, headers });
+}
+
 async function miniSnapshot(request: Request, env: Env): Promise<Response> {
   let body: Record<string, unknown>;
   try { body = (await request.json()) as Record<string, unknown>; } catch { return json({ error: "INVALID_REQUEST" }, 400); }
@@ -1239,15 +1332,15 @@ export default {
     } catch { /* The health endpoint can still respond before a first migration in local development. */ }
 
     if (request.method === "GET" && url.pathname === "/health") {
-      return json({ ok: true, service: "iumrah-telegram-bot", version: "1.3.0", apiOrigin: apiOrigin(env), iumrahWebBinding: Boolean(env.IUMRAH_WEB) });
+      return json({ ok: true, service: "iumrah-telegram-bot", version: "1.4.0", apiOrigin: apiOrigin(env), iumrahWebBinding: Boolean(env.IUMRAH_WEB) });
     }
     if (request.method === "GET" && /^\/status-image\/[a-z_]+\.webp$/.test(url.pathname)) {
       const key = url.pathname.split("/").pop()?.replace(/\.webp$/, "") || "";
       return serveStatusImage(key);
     }
-    if (request.method === "GET" && /^\/mini-asset\/[a-z0-9-]+\.(png|jpeg|jpg)$/.test(url.pathname)) {
+    if (request.method === "GET" && /^\/mini-asset\/[a-z0-9-]+\.(png|jpeg|jpg|ttf)$/.test(url.pathname)) {
       const filename = url.pathname.split("/").pop() || "";
-      const key = filename.replace(/\.(png|jpeg|jpg)$/, "").replace(/-/g, "_");
+      const key = filename.replace(/\.(png|jpeg|jpg|ttf)$/, "").replace(/-/g, "_");
       return serveMiniAsset(key);
     }
     if (request.method === "GET" && url.pathname === "/mini") {
@@ -1257,6 +1350,10 @@ export default {
     if (request.method === "POST" && url.pathname === "/mini/hotels") return miniHotels(request, env);
     if (request.method === "POST" && url.pathname === "/mini/hotel") return miniHotel(request, env);
     if (request.method === "POST" && url.pathname === "/mini/action") return miniAction(request, env);
+    if (request.method === "POST" && url.pathname === "/mini/care/messages") return miniCareMessages(request, env);
+    if (request.method === "POST" && url.pathname === "/mini/care/send") return miniCareSend(request, env);
+    if (request.method === "POST" && url.pathname === "/mini/care/photo") return miniCarePhoto(request, env);
+    if (request.method === "POST" && url.pathname === "/mini/care/attachment") return miniCareAttachment(request, env);
     if (request.method === "POST" && url.pathname === "/mini/snapshot") return miniSnapshot(request, env);
     if (request.method === "POST" && url.pathname === "/internal/link-token") return createLinkToken(request, env);
     if (request.method === "POST" && url.pathname === "/internal/booking-event") return bookingEvent(request, env);
