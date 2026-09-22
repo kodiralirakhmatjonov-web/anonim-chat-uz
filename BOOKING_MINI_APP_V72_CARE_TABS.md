@@ -88,3 +88,21 @@ Worker `/health` version: `1.4.0`.
 ## Scope
 
 This release intentionally changes only the booking/status/Care area requested for the Telegram Mini App. It does not add unrelated iOS tabs or duplicate the full iOS application.
+
+
+---
+
+## V7.2.1 — Chat status artwork refresh
+
+Updated Telegram chat status card images to the new visual set provided by the user.
+
+Changed mappings:
+- NEW → new booking artwork
+- AVAILABILITY_CHECK → checking availability artwork
+- PAYMENT_PENDING → availability confirmed / awaiting payment artwork
+- PAID / BOOKING_CONFIRMED → paid and booking confirmed artwork
+- DOCUMENTS_READY / READY_TO_TRAVEL → documents ready artwork
+- IN_TRIP → in trip artwork
+- COMPLETED → completed artwork
+
+Also updated localized copy for the NEW status in RU / EN / UZ Latin / UZ Cyrillic and bumped /health version to 1.4.1.

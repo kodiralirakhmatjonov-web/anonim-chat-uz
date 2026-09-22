@@ -34,6 +34,7 @@ type TranslationSet = {
   };
   lifecycle: { availability: string; price_lock: string; payment_confirmation: string; documents: string };
   statuses: {
+    newBooking: LocalizedStatusCopy;
     checking: LocalizedStatusCopy;
     paymentWaiting: LocalizedStatusCopy;
     paymentReceived: LocalizedStatusCopy;
@@ -59,7 +60,8 @@ const I18N: Record<Locale, TranslationSet> = {
     },
     lifecycle: { availability: "До максимального срока проверки", price_lock: "Цена зафиксирована ещё", payment_confirmation: "Проверка оплаты", documents: "Подготовка документов" },
     statuses: {
-      checking: { title: "Проверяем доступность", body: "iumrah проверяет рейсы, отели и остальные компоненты вашей поездки." },
+      newBooking: { title: "Новое бронирование", body: "Ваша бронь создана и передана в систему iumrah. Скоро начнётся автоматическая проверка рейсов, отелей и остальных компонентов поездки." },
+      checking: { title: "Проверка наличия", body: "iumrah проверяет рейсы, отели и остальные компоненты вашей поездки." },
       paymentWaiting: { title: "Наличие подтверждено", body: "Можно переходить к оплате и заполнению данных паломников. Цена удерживается ограниченное время." },
       paymentReceived: { title: "Оплата получена", body: "Платёж уже получен и сейчас проходит подтверждение." },
       confirmed: { title: "Бронирование подтверждено", body: "Мы готовим документы и подтверждения по вашей поездке." },
@@ -82,6 +84,7 @@ const I18N: Record<Locale, TranslationSet> = {
     },
     lifecycle: { availability: "Maximum availability window", price_lock: "Price is locked for", payment_confirmation: "Payment review", documents: "Preparing documents" },
     statuses: {
+      newBooking: { title: "New booking", body: "Your booking has been created and sent to the iumrah system. Automatic verification of flights, hotels and the remaining trip components will begin shortly." },
       checking: { title: "Checking availability", body: "iumrah is checking flights, hotels and the remaining trip components." },
       paymentWaiting: { title: "Availability confirmed", body: "You can now proceed with payment and pilgrim details. The price is held for a limited time." },
       paymentReceived: { title: "Payment received", body: "Your payment has been received and is now being reviewed." },
@@ -105,6 +108,7 @@ const I18N: Record<Locale, TranslationSet> = {
     },
     lifecycle: { availability: "Maksimal tekshiruv muddati", price_lock: "Narx yana shuncha vaqt ushlab turiladi", payment_confirmation: "To'lovni tekshirish", documents: "Hujjatlar tayyorlanmoqda" },
     statuses: {
+      newBooking: { title: "Yangi bron", body: "Broningiz yaratildi va iumrah tizimiga yuborildi. Tez orada parvozlar, mehmonxonalar va safarning qolgan qismlari avtomatik tekshiriladi." },
       checking: { title: "Mavjudlik tekshirilmoqda", body: "iumrah parvozlar, mehmonxonalar va safarning qolgan qismlarini tekshirmoqda." },
       paymentWaiting: { title: "Mavjudlik tasdiqlandi", body: "Endi to'lov va ziyoratchilar ma'lumotlarini topshirishingiz mumkin. Narx cheklangan vaqtga ushlab turiladi." },
       paymentReceived: { title: "To'lov qabul qilindi", body: "To'lov qabul qilindi va hozir tasdiqlanmoqda." },
@@ -128,6 +132,7 @@ const I18N: Record<Locale, TranslationSet> = {
     },
     lifecycle: { availability: "Максимал текширув муддати", price_lock: "Нарх яна шунча вақт ушлаб турилади", payment_confirmation: "Тўловни текшириш", documents: "Ҳужжатлар тайёрланмоқда" },
     statuses: {
+      newBooking: { title: "Янги брон", body: "Бронингиз яратилди ва iumrah тизимига юборилди. Яқин орада парвозлар, меҳмонхоналар ва сафарнинг қолган қисмлари автоматик текширилади." },
       checking: { title: "Мавжудлик текширилмоқда", body: "iumrah парвозлар, меҳмонхоналар ва сафарнинг қолган қисмларини текширмоқда." },
       paymentWaiting: { title: "Мавжудлик тасдиқланди", body: "Энди тўлов ва зиёратчилар маълумотларини топширишингиз мумкин. Нарх чекланган вақтга ушлаб турилади." },
       paymentReceived: { title: "Тўлов қабул қилинди", body: "Тўлов қабул қилинди ва ҳозир тасдиқланмоқда." },
@@ -602,8 +607,9 @@ function bookingReference(trip: ClientTripSnapshot): string {
 function statusImageKey(status: string): keyof typeof STATUS_ASSETS {
   switch (status.trim().toUpperCase()) {
     case "NEW":
-    case "AVAILABILITY_CHECK":
       return "new";
+    case "AVAILABILITY_CHECK":
+      return "checking";
     case "PAYMENT_PENDING":
       return "payment_pending";
     case "PAID":
@@ -625,6 +631,7 @@ function statusCopy(locale: Locale, status: string, paymentStatus?: string | nul
   const copy = textFor(locale).statuses;
   switch (status.trim().toUpperCase()) {
     case "NEW":
+      return copy.newBooking;
     case "AVAILABILITY_CHECK":
       return copy.checking;
     case "PAYMENT_PENDING":
@@ -1332,7 +1339,7 @@ export default {
     } catch { /* The health endpoint can still respond before a first migration in local development. */ }
 
     if (request.method === "GET" && url.pathname === "/health") {
-      return json({ ok: true, service: "iumrah-telegram-bot", version: "1.4.0", apiOrigin: apiOrigin(env), iumrahWebBinding: Boolean(env.IUMRAH_WEB) });
+      return json({ ok: true, service: "iumrah-telegram-bot", version: "1.4.1", apiOrigin: apiOrigin(env), iumrahWebBinding: Boolean(env.IUMRAH_WEB) });
     }
     if (request.method === "GET" && /^\/status-image\/[a-z_]+\.webp$/.test(url.pathname)) {
       const key = url.pathname.split("/").pop()?.replace(/\.webp$/, "") || "";
