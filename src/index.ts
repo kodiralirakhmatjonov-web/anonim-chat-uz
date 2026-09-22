@@ -1049,10 +1049,14 @@ async function miniBookingBundle(env: Env, row: LinkedBookingRow): Promise<any |
         return result.status === 200 ? result.body : null;
       } catch { return null; }
     };
-    const [checkout, itinerary, security] = await Promise.all([
+    const makkahHotelID = clean(primary.body.booking?.hotelSelection?.hotelId, 128);
+    const madinahHotelID = clean(primary.body.booking?.madinahHotelSelection?.hotelId, 128);
+    const [checkout, itinerary, security, makkahHotel, madinahHotel] = await Promise.all([
       optional(`/api/catalog/hotels/client/trips/${encodeURIComponent(row.booking_id)}/checkout`),
       optional(`/api/catalog/hotels/client/trips/${encodeURIComponent(row.booking_id)}/itinerary`),
       optional(`/api/catalog/hotels/client/trips/${encodeURIComponent(row.booking_id)}/security`),
+      makkahHotelID ? optional(`/api/catalog/hotels/${encodeURIComponent(makkahHotelID)}`) : Promise.resolve(null),
+      madinahHotelID ? optional(`/api/catalog/hotels/${encodeURIComponent(madinahHotelID)}`) : Promise.resolve(null),
     ]);
     return {
       reference: bookingReference(payload.trip),
@@ -1063,6 +1067,10 @@ async function miniBookingBundle(env: Env, row: LinkedBookingRow): Promise<any |
       checkout: checkout && checkout.ok !== false ? checkout : null,
       itinerary: Array.isArray(itinerary?.items) ? itinerary.items : [],
       security: security?.confirmation ?? null,
+      hotelDetails: {
+        makkah: makkahHotel && makkahHotel.ok !== false ? makkahHotel : null,
+        madinah: madinahHotel && madinahHotel.ok !== false ? madinahHotel : null,
+      },
     };
   } catch { return null; }
 }
@@ -1082,6 +1090,47 @@ async function miniBootstrap(request: Request, env: Env): Promise<Response> {
   }
   if (!bundles.length) return json({ error: "BOOKING_REFRESH_FAILED" }, 502);
   return json({ ok: true, locale, bookings: bundles });
+}
+
+async function miniHotelContext(request: Request, env: Env): Promise<{ user: TelegramUser; row: LinkedBookingRow; token: string; body: Record<string, unknown> } | Response> {
+  let body: Record<string, unknown>;
+  try { body = (await request.json()) as Record<string, unknown>; } catch { return json({ error: "INVALID_REQUEST" }, 400); }
+  const user = await validateTelegramInitData(env, clean(body.initData, 8192));
+  if (!user) return json({ error: "TELEGRAM_AUTH_FAILED" }, 401);
+  const bookingID = clean(body.bookingId, 64);
+  if (!validBookingID(bookingID)) return json({ error: "INVALID_BOOKING" }, 400);
+  const row = await env.DB.prepare(
+    `SELECT telegram_user_id, chat_id, booking_id, booking_token_ciphertext, booking_token_iv, language,
+            last_status, last_payment_status, last_confirmation_number, notifications_enabled
+     FROM telegram_bookings WHERE telegram_user_id=?1 AND booking_id=?2 LIMIT 1`,
+  ).bind(user.id, bookingID).first<LinkedBookingRow>();
+  if (!row) return json({ error: "BOOKING_NOT_LINKED" }, 404);
+  const token = await decryptSecret(env, row.booking_token_ciphertext, row.booking_token_iv);
+  return { user, row, token, body };
+}
+
+async function miniHotels(request: Request, env: Env): Promise<Response> {
+  const context = await miniHotelContext(request, env);
+  if (context instanceof Response) return context;
+  const role = clean(context.body.role, 16).toLowerCase();
+  if (role !== "makkah" && role !== "madinah") return json({ error: "INVALID_HOTEL_ROLE" }, 400);
+  const city = role === "madinah" ? "Madinah" : "Makkah";
+  const result = await fetchWebJSON(env, `/api/catalog/hotels?city=${encodeURIComponent(city)}`, context.token);
+  if (result.status < 200 || result.status >= 300) return json({ error: result.body?.error || `HOTEL_LIST_${result.status}` }, result.status || 502);
+  return json({ ok: true, role, hotels: Array.isArray(result.body?.hotels) ? result.body.hotels : [] });
+}
+
+async function miniHotel(request: Request, env: Env): Promise<Response> {
+  const context = await miniHotelContext(request, env);
+  if (context instanceof Response) return context;
+  const hotelID = clean(context.body.hotelId, 128);
+  if (!hotelID) return json({ error: "INVALID_HOTEL" }, 400);
+  const [detail, categories] = await Promise.all([
+    fetchWebJSON(env, `/api/catalog/hotels/${encodeURIComponent(hotelID)}`, context.token),
+    fetchWebJSON(env, `/api/package/hotel/${encodeURIComponent(hotelID)}/room-categories`, context.token),
+  ]);
+  if (detail.status < 200 || detail.status >= 300 || !detail.body?.hotel) return json({ error: detail.body?.error || `HOTEL_DETAIL_${detail.status}` }, detail.status || 502);
+  return json({ ok: true, hotel: detail.body.hotel, categories: Array.isArray(categories.body?.categories) ? categories.body.categories : [] });
 }
 
 async function miniAction(request: Request, env: Env): Promise<Response> {
@@ -1110,6 +1159,39 @@ async function miniAction(request: Request, env: Env): Promise<Response> {
     for (const key of ["ziyaratMakkah", "ziyaratMadinah", "esim"]) if (typeof payload[key] === "boolean") out[key] = payload[key] as boolean;
     if (!Object.keys(out).length) return json({ error: "INVALID_CUSTOMIZATION" }, 400);
     result = await fetchWebJSON(env, `/api/package/booking/${encodeURIComponent(bookingID)}/customization`, token, { method: "PATCH", body: JSON.stringify(out) });
+  } else if (action === "hotel") {
+    const role = clean(payload.role, 16).toLowerCase();
+    const hotelID = clean(payload.hotelId, 128);
+    const roomID = clean(payload.roomId, 128);
+    const categoryID = clean(payload.categoryId, 128);
+    if ((role !== "makkah" && role !== "madinah") || !hotelID) return json({ error: "INVALID_HOTEL_SELECTION" }, 400);
+    const detail = await fetchWebJSON(env, `/api/catalog/hotels/${encodeURIComponent(hotelID)}`, token);
+    if (detail.status !== 200 || !detail.body?.hotel) return json({ error: detail.body?.error || "HOTEL_NOT_FOUND" }, detail.status || 404);
+    const hotel = detail.body.hotel as Record<string, any>;
+    const rooms = Array.isArray(hotel.rooms) ? hotel.rooms : [];
+    const room = roomID ? rooms.find((item: any) => clean(item?.id, 128) === roomID) : null;
+    let category: any = null;
+    if (categoryID) {
+      const categories = await fetchWebJSON(env, `/api/package/hotel/${encodeURIComponent(hotelID)}/room-categories`, token);
+      category = Array.isArray(categories.body?.categories) ? categories.body.categories.find((item: any) => clean(item?.id, 128) === categoryID) : null;
+      if (!category) return json({ error: "ROOM_CATEGORY_NOT_FOUND" }, 404);
+    }
+    if (roomID && !room) return json({ error: "ROOM_NOT_FOUND" }, 404);
+    const images = Array.isArray(hotel.images) ? hotel.images : [];
+    const cover = images.find((item: any) => item?.isCover === true)?.url || images[0]?.url || null;
+    const updateBody = {
+      role,
+      hotelId: clean(hotel.id, 128),
+      coverImageURL: cover,
+      roomId: room ? clean(room.id, 128) || null : null,
+      roomName: room ? clean(room.name, 256) || null : category ? clean(category.displayName, 256) || null : null,
+      roomBeds: room ? clean(room.beds, 256) || null : category ? clean(category.bedConfiguration, 256) || null : null,
+      roomSizeM2: room && typeof room.sizeM2 === "number" ? room.sizeM2 : null,
+      roomMaxGuests: room && typeof room.maxGuests === "number" ? room.maxGuests : category && typeof category.maxGuests === "number" ? category.maxGuests : null,
+      roomCategory: category ? clean(category.category, 32) || null : null,
+      roomSource: category ? "iumrahPrimary" : room ? "hotelInventory" : null,
+    };
+    result = await fetchWebJSON(env, `/api/package/booking/${encodeURIComponent(bookingID)}`, token, { method: "PATCH", body: JSON.stringify(updateBody) });
   } else if (action === "delete") {
     result = await fetchWebJSON(env, `/api/catalog/hotels/client/bookings/${encodeURIComponent(bookingID)}`, token, { method: "DELETE" });
     if (result.status >= 200 && result.status < 300) {
@@ -1157,7 +1239,7 @@ export default {
     } catch { /* The health endpoint can still respond before a first migration in local development. */ }
 
     if (request.method === "GET" && url.pathname === "/health") {
-      return json({ ok: true, service: "iumrah-telegram-bot", version: "1.2.0", apiOrigin: apiOrigin(env), iumrahWebBinding: Boolean(env.IUMRAH_WEB) });
+      return json({ ok: true, service: "iumrah-telegram-bot", version: "1.3.0", apiOrigin: apiOrigin(env), iumrahWebBinding: Boolean(env.IUMRAH_WEB) });
     }
     if (request.method === "GET" && /^\/status-image\/[a-z_]+\.webp$/.test(url.pathname)) {
       const key = url.pathname.split("/").pop()?.replace(/\.webp$/, "") || "";
@@ -1172,6 +1254,8 @@ export default {
       return new Response(miniHTML(), { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
     }
     if (request.method === "POST" && url.pathname === "/mini/bootstrap") return miniBootstrap(request, env);
+    if (request.method === "POST" && url.pathname === "/mini/hotels") return miniHotels(request, env);
+    if (request.method === "POST" && url.pathname === "/mini/hotel") return miniHotel(request, env);
     if (request.method === "POST" && url.pathname === "/mini/action") return miniAction(request, env);
     if (request.method === "POST" && url.pathname === "/mini/snapshot") return miniSnapshot(request, env);
     if (request.method === "POST" && url.pathname === "/internal/link-token") return createLinkToken(request, env);
