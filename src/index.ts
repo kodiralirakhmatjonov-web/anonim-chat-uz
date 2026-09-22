@@ -1,4 +1,6 @@
 import { STATUS_ASSETS } from './status-assets';
+import { MINI_ASSETS } from './mini-assets';
+import { bookingMiniV7HTML } from './mini-v7';
 type ScheduledController = { cron?: string; scheduledTime?: number; noRetry?: () => void };
 
 type Locale = "ru" | "en" | "uz" | "uz_cyrl";
@@ -1012,17 +1014,112 @@ async function validateTelegramInitData(env: Env, initData: string): Promise<Tel
 }
 
 function miniHTML(): string {
-  return `<!doctype html>
-<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>iumrah</title><script src="https://telegram.org/js/telegram-web-app.js?63"></script>
-<style>
-:root{color-scheme:light dark;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",sans-serif}*{box-sizing:border-box}body{margin:0;background:var(--tg-theme-secondary-bg-color,#f3f4f6);color:var(--tg-theme-text-color,#111);padding:18px 16px calc(24px + env(safe-area-inset-bottom))}.wrap{max-width:620px;margin:0 auto}.brand{font-weight:800;font-size:14px;letter-spacing:-.03em;margin:4px 2px 18px}.card{background:var(--tg-theme-bg-color,#fff);border-radius:28px;padding:24px;box-shadow:0 14px 40px rgba(0,0,0,.07)}.eyebrow{font-size:10px;font-weight:800;letter-spacing:.1em;opacity:.48}.ref{font-size:15px;font-weight:750;margin-top:5px}.title{font-size:30px;line-height:1.02;letter-spacing:-.055em;margin:28px 0 10px;font-weight:780}.body{font-size:14px;line-height:1.48;opacity:.58}.timer{margin-top:24px;padding:19px;border-radius:22px;background:var(--tg-theme-secondary-bg-color,#f3f4f6)}.timer span{font-size:10px;font-weight:800;letter-spacing:.07em;opacity:.5}.timer strong{display:block;font:780 42px/1 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:-.06em;margin-top:9px}.meta{display:grid;gap:9px;margin-top:18px;font-size:12px}.meta div{display:flex;justify-content:space-between;gap:16px;padding-top:9px;border-top:1px solid rgba(127,127,127,.14)}.meta span{opacity:.5}.status{margin:18px 2px 0;font-size:11px;opacity:.48;text-align:center}.error{padding:28px 20px;text-align:center;line-height:1.5}.hidden{display:none}</style></head>
-<body><div class="wrap"><div class="brand">iumrah</div><section id="card" class="card hidden"><div class="eyebrow">БРОНИРОВАНИЕ</div><div id="ref" class="ref"></div><h1 id="title" class="title"></h1><p id="body" class="body"></p><div id="timer" class="timer hidden"><span id="timerTitle"></span><strong id="countdown">00:00:00</strong></div><div class="meta"><div><span>Статус</span><b id="status"></b></div><div id="datesRow"><span>Даты</span><b id="dates"></b></div></div></section><div id="error" class="error">Загружаем вашу бронь…</div><div class="status">Данные синхронизируются с единой системой iumrah.</div></div>
-<script>
-const tg=window.Telegram?.WebApp;tg?.ready();tg?.expand();const booking=new URLSearchParams(location.search).get('booking')||'';let deadline=null;
-function tick(){if(!deadline)return;const total=Math.max(0,Math.floor((Date.parse(deadline)-Date.now())/1000));const h=Math.floor(total/3600),m=Math.floor((total%3600)/60),s=total%60;document.getElementById('countdown').textContent=[h,m,s].map(v=>String(v).padStart(2,'0')).join(':')}
-async function load(){try{if(!tg?.initData)throw new Error('Откройте этот экран внутри Telegram.');const r=await fetch('/mini/snapshot',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({initData:tg.initData,bookingId:booking})});const x=await r.json();if(!r.ok)throw new Error(x.error||'Не удалось загрузить бронь.');document.getElementById('ref').textContent=x.reference;document.getElementById('title').textContent=x.copy.title;document.getElementById('body').textContent=x.copy.body;document.getElementById('status').textContent=x.trip.status;const dates=[x.trip.startDate,x.trip.endDate].filter(Boolean).join(' — ');document.getElementById('dates').textContent=dates||'—';deadline=x.lifecycle.deadlineAt;if(deadline){document.getElementById('timer').classList.remove('hidden');document.getElementById('timerTitle').textContent=x.lifecycle.title;tick();setInterval(tick,1000)}document.getElementById('error').classList.add('hidden');document.getElementById('card').classList.remove('hidden')}catch(e){document.getElementById('error').textContent=e?.message||'Ошибка'}}load();
-</script></body></html>`;
+  return bookingMiniV7HTML();
+}
+
+function serveMiniAsset(key: string): Response {
+  const asset = MINI_ASSETS[key as keyof typeof MINI_ASSETS];
+  if (!asset) return new Response("Not found", { status: 404 });
+  return new Response(decodeBase64(asset.data), {
+    headers: { "content-type": asset.contentType, "cache-control": "public, max-age=31536000, immutable" },
+  });
+}
+
+async function fetchWebJSON(env: Env, path: string, bookingToken: string, init?: RequestInit): Promise<{ status: number; body: any }> {
+  if (!env.IUMRAH_WEB || typeof env.IUMRAH_WEB.fetch !== "function") return { status: 503, body: { error: "IUMRAH_WEB_BINDING_MISSING" } };
+  const headers = new Headers(init?.headers || {});
+  headers.set("accept", "application/json");
+  headers.set("x-booking-token", bookingToken);
+  if (init?.body && !headers.has("content-type")) headers.set("content-type", "application/json");
+  const response = await env.IUMRAH_WEB.fetch(new Request(`https://iumrah-web.internal${path}`, { ...init, headers, redirect: "manual" }));
+  let body: any = null;
+  try { body = await response.json(); } catch { body = null; }
+  return { status: response.status, body };
+}
+
+async function miniBookingBundle(env: Env, row: LinkedBookingRow): Promise<any | null> {
+  try {
+    const token = await decryptSecret(env, row.booking_token_ciphertext, row.booking_token_iv);
+    const primary = await fetchWebJSON(env, `/api/bookings/${encodeURIComponent(row.booking_id)}`, token);
+    if (primary.status !== 200 || !primary.body?.booking) return null;
+    const payload = await fetchTrip(env, row.booking_id, token);
+    const optional = async (path: string) => {
+      try {
+        const result = await fetchWebJSON(env, path, token);
+        return result.status === 200 ? result.body : null;
+      } catch { return null; }
+    };
+    const [checkout, itinerary, security] = await Promise.all([
+      optional(`/api/catalog/hotels/client/trips/${encodeURIComponent(row.booking_id)}/checkout`),
+      optional(`/api/catalog/hotels/client/trips/${encodeURIComponent(row.booking_id)}/itinerary`),
+      optional(`/api/catalog/hotels/client/trips/${encodeURIComponent(row.booking_id)}/security`),
+    ]);
+    return {
+      reference: bookingReference(payload.trip),
+      booking: primary.body.booking,
+      trip: payload.trip,
+      lifecycle: lifecycle(payload),
+      guide: (payload as any).assignment?.guide ?? null,
+      checkout: checkout && checkout.ok !== false ? checkout : null,
+      itinerary: Array.isArray(itinerary?.items) ? itinerary.items : [],
+      security: security?.confirmation ?? null,
+    };
+  } catch { return null; }
+}
+
+async function miniBootstrap(request: Request, env: Env): Promise<Response> {
+  let body: Record<string, unknown>;
+  try { body = (await request.json()) as Record<string, unknown>; } catch { return json({ error: "INVALID_REQUEST" }, 400); }
+  const user = await validateTelegramInitData(env, clean(body.initData, 8192));
+  if (!user) return json({ error: "TELEGRAM_AUTH_FAILED" }, 401);
+  const rows = await linkedRowsForUser(env, user.id);
+  if (!rows.length) return json({ error: "BOOKING_NOT_LINKED" }, 404);
+  const locale = normalizeLocale(rows[0]?.language || user.language_code || "ru");
+  const bundles: any[] = [];
+  for (const row of rows.slice(0, 10)) {
+    const bundle = await miniBookingBundle(env, row);
+    if (bundle) bundles.push(bundle);
+  }
+  if (!bundles.length) return json({ error: "BOOKING_REFRESH_FAILED" }, 502);
+  return json({ ok: true, locale, bookings: bundles });
+}
+
+async function miniAction(request: Request, env: Env): Promise<Response> {
+  let body: Record<string, unknown>;
+  try { body = (await request.json()) as Record<string, unknown>; } catch { return json({ error: "INVALID_REQUEST" }, 400); }
+  const user = await validateTelegramInitData(env, clean(body.initData, 8192));
+  if (!user) return json({ error: "TELEGRAM_AUTH_FAILED" }, 401);
+  const bookingID = clean(body.bookingId, 64);
+  if (!validBookingID(bookingID)) return json({ error: "INVALID_BOOKING" }, 400);
+  const row = await env.DB.prepare(
+    `SELECT telegram_user_id, chat_id, booking_id, booking_token_ciphertext, booking_token_iv, language,
+            last_status, last_payment_status, last_confirmation_number, notifications_enabled
+     FROM telegram_bookings WHERE telegram_user_id=?1 AND booking_id=?2 LIMIT 1`,
+  ).bind(user.id, bookingID).first<LinkedBookingRow>();
+  if (!row) return json({ error: "BOOKING_NOT_LINKED" }, 404);
+  const token = await decryptSecret(env, row.booking_token_ciphertext, row.booking_token_iv);
+  const action = clean(body.action, 64);
+  const payload = body.payload && typeof body.payload === "object" ? body.payload as Record<string, unknown> : {};
+  let result: { status: number; body: any };
+  if (action === "contacts") {
+    result = await fetchWebJSON(env, `/api/package/booking/${encodeURIComponent(bookingID)}/contact`, token, {
+      method: "PATCH", body: JSON.stringify({ telegram: clean(payload.telegram, 128), whatsapp: clean(payload.whatsapp, 128) }),
+    });
+  } else if (action === "customization") {
+    const out: Record<string, boolean> = {};
+    for (const key of ["ziyaratMakkah", "ziyaratMadinah", "esim"]) if (typeof payload[key] === "boolean") out[key] = payload[key] as boolean;
+    if (!Object.keys(out).length) return json({ error: "INVALID_CUSTOMIZATION" }, 400);
+    result = await fetchWebJSON(env, `/api/package/booking/${encodeURIComponent(bookingID)}/customization`, token, { method: "PATCH", body: JSON.stringify(out) });
+  } else if (action === "delete") {
+    result = await fetchWebJSON(env, `/api/catalog/hotels/client/bookings/${encodeURIComponent(bookingID)}`, token, { method: "DELETE" });
+    if (result.status >= 200 && result.status < 300) {
+      await env.DB.prepare("DELETE FROM telegram_bookings WHERE telegram_user_id=?1 AND booking_id=?2").bind(user.id, bookingID).run();
+    }
+  } else {
+    return json({ error: "UNSUPPORTED_ACTION" }, 400);
+  }
+  if (result.status < 200 || result.status >= 300) return json({ error: result.body?.error || `IUMRAH_ACTION_${result.status}` }, result.status || 502);
+  return json({ ok: true, result: result.body });
 }
 
 async function miniSnapshot(request: Request, env: Env): Promise<Response> {
@@ -1060,15 +1157,22 @@ export default {
     } catch { /* The health endpoint can still respond before a first migration in local development. */ }
 
     if (request.method === "GET" && url.pathname === "/health") {
-      return json({ ok: true, service: "iumrah-telegram-bot", version: "1.1.0", apiOrigin: apiOrigin(env), iumrahWebBinding: Boolean(env.IUMRAH_WEB) });
+      return json({ ok: true, service: "iumrah-telegram-bot", version: "1.2.0", apiOrigin: apiOrigin(env), iumrahWebBinding: Boolean(env.IUMRAH_WEB) });
     }
     if (request.method === "GET" && /^\/status-image\/[a-z_]+\.webp$/.test(url.pathname)) {
       const key = url.pathname.split("/").pop()?.replace(/\.webp$/, "") || "";
       return serveStatusImage(key);
     }
+    if (request.method === "GET" && /^\/mini-asset\/[a-z0-9-]+\.(png|jpeg|jpg)$/.test(url.pathname)) {
+      const filename = url.pathname.split("/").pop() || "";
+      const key = filename.replace(/\.(png|jpeg|jpg)$/, "").replace(/-/g, "_");
+      return serveMiniAsset(key);
+    }
     if (request.method === "GET" && url.pathname === "/mini") {
       return new Response(miniHTML(), { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
     }
+    if (request.method === "POST" && url.pathname === "/mini/bootstrap") return miniBootstrap(request, env);
+    if (request.method === "POST" && url.pathname === "/mini/action") return miniAction(request, env);
     if (request.method === "POST" && url.pathname === "/mini/snapshot") return miniSnapshot(request, env);
     if (request.method === "POST" && url.pathname === "/internal/link-token") return createLinkToken(request, env);
     if (request.method === "POST" && url.pathname === "/internal/booking-event") return bookingEvent(request, env);
