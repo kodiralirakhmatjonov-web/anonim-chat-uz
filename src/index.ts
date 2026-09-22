@@ -174,6 +174,94 @@ interface Env {
   DB: D1Database;
 }
 
+
+
+type BotUXCopy = {
+  chooseLanguage: string;
+  languageSaved: string;
+  welcomeTitle: string;
+  welcomeBody: string;
+  pinnedTitle: string;
+  pinnedBody: string;
+  openMini: string;
+  status: string;
+  support: string;
+  supportTitle: string;
+  supportBody: string;
+  menuReady: string;
+  website: string;
+};
+
+const BOT_UX: Record<Locale, BotUXCopy> = {
+  ru: {
+    chooseLanguage: "Выберите язык iumrah Telegram",
+    languageSaved: "Русский выбран",
+    welcomeTitle: "iumrah — ваша поездка в Telegram",
+    welcomeBody: "Отслеживайте статус бронирования, серверные таймеры и изменения поездки. Полное управление бронью доступно в Mini App.",
+    pinnedTitle: "Отслеживание бронирования",
+    pinnedBody: "Откройте Mini App, чтобы видеть актуальный статус, таймеры, отели, услуги и iumrah Care.",
+    openMini: "Открыть Mini App",
+    status: "Статус брони",
+    support: "iumrah Care",
+    supportTitle: "iumrah Care",
+    supportBody: "Поддержка по вашей поездке. Телефон: +998 50 889 88 45. Для управления поддержкой откройте Care в Mini App.",
+    menuReady: "Меню готово. Mini App всегда доступно кнопкой ниже.",
+    website: "Открыть iumrah.app",
+  },
+  en: {
+    chooseLanguage: "Choose your iumrah Telegram language",
+    languageSaved: "English selected",
+    welcomeTitle: "iumrah — your trip in Telegram",
+    welcomeBody: "Track booking status, server timers and trip changes. Full booking management is available in the Mini App.",
+    pinnedTitle: "Booking tracking",
+    pinnedBody: "Open the Mini App to see live status, timers, hotels, services and iumrah Care.",
+    openMini: "Open Mini App",
+    status: "Booking status",
+    support: "iumrah Care",
+    supportTitle: "iumrah Care",
+    supportBody: "Support for your trip. Phone: +998 50 889 88 45. Open Care in the Mini App for full support controls.",
+    menuReady: "Menu is ready. The Mini App is always available from the button below.",
+    website: "Open iumrah.app",
+  },
+  uz: {
+    chooseLanguage: "iumrah Telegram tilini tanlang",
+    languageSaved: "O‘zbek tili tanlandi",
+    welcomeTitle: "iumrah — safaringiz Telegram ichida",
+    welcomeBody: "Bron holati, server taymerlari va safardagi o‘zgarishlarni kuzating. Bronni to‘liq boshqarish Mini App ichida mavjud.",
+    pinnedTitle: "Bronni kuzatish",
+    pinnedBody: "Jonli status, taymerlar, mehmonxonalar, xizmatlar va iumrah Care uchun Mini App’ni oching.",
+    openMini: "Mini App’ni ochish",
+    status: "Bron holati",
+    support: "iumrah Care",
+    supportTitle: "iumrah Care",
+    supportBody: "Safaringiz bo‘yicha yordam. Telefon: +998 50 889 88 45. To‘liq yordam boshqaruvi uchun Mini App ichidagi Care bo‘limini oching.",
+    menuReady: "Menyu tayyor. Mini App pastdagi tugma orqali doim ochiladi.",
+    website: "iumrah.app’ni ochish",
+  },
+  uz_cyrl: {
+    chooseLanguage: "iumrah Telegram тилини танланг",
+    languageSaved: "Ўзбек тили танланди",
+    welcomeTitle: "iumrah — сафарингиз Telegram ичида",
+    welcomeBody: "Брон ҳолати, сервер таймерлари ва сафардаги ўзгаришларни кузатинг. Бронни тўлиқ бошқариш Mini App ичида мавжуд.",
+    pinnedTitle: "Бронни кузатиш",
+    pinnedBody: "Жонли статус, таймерлар, меҳмонхоналар, хизматлар ва iumrah Care учун Mini App’ни очинг.",
+    openMini: "Mini App’ни очиш",
+    status: "Брон ҳолати",
+    support: "iumrah Care",
+    supportTitle: "iumrah Care",
+    supportBody: "Сафарингиз бўйича ёрдам. Телефон: +998 50 889 88 45. Тўлиқ ёрдам бошқаруви учун Mini App ичидаги Care бўлимини очинг.",
+    menuReady: "Меню тайёр. Mini App пастдаги тугма орқали доим очилади.",
+    website: "iumrah.app’ни очиш",
+  },
+};
+
+type TelegramUserPreferenceRow = {
+  telegram_user_id: number;
+  language: string;
+  pinned_message_id: number | null;
+  updated_at: string;
+};
+
 type TelegramUser = {
   id: number;
   first_name?: string;
@@ -381,6 +469,158 @@ async function sendPhotoMessage(env: Env, chatId: number, photo: string, caption
 
 async function answerCallback(env: Env, callbackId: string, text?: string): Promise<void> {
   await telegramCall(env, "answerCallbackQuery", { callback_query_id: callbackId, ...(text ? { text } : {}) });
+}
+
+function botUX(locale: Locale): BotUXCopy {
+  return BOT_UX[locale] ?? BOT_UX.ru;
+}
+
+function miniBaseURL(env: Env, runtimeBaseURL?: string): string {
+  return clean(runtimeBaseURL || env.PUBLIC_BASE_URL, 512).replace(/\/+$/, "");
+}
+
+async function ensureBotUXSchema(env: Env): Promise<void> {
+  await env.DB.prepare(
+    `CREATE TABLE IF NOT EXISTS telegram_user_preferences (
+      telegram_user_id INTEGER PRIMARY KEY,
+      language TEXT NOT NULL DEFAULT 'ru',
+      pinned_message_id INTEGER,
+      updated_at TEXT NOT NULL
+    )`,
+  ).run();
+}
+
+async function getUserPreference(env: Env, telegramUserID: number): Promise<TelegramUserPreferenceRow | null> {
+  await ensureBotUXSchema(env);
+  return env.DB.prepare(
+    `SELECT telegram_user_id, language, pinned_message_id, updated_at
+     FROM telegram_user_preferences WHERE telegram_user_id=?1 LIMIT 1`,
+  ).bind(telegramUserID).first<TelegramUserPreferenceRow>();
+}
+
+async function saveUserLocale(env: Env, telegramUserID: number, locale: Locale): Promise<void> {
+  await ensureBotUXSchema(env);
+  await env.DB.prepare(
+    `INSERT INTO telegram_user_preferences(telegram_user_id, language, pinned_message_id, updated_at)
+     VALUES (?1, ?2, NULL, ?3)
+     ON CONFLICT(telegram_user_id) DO UPDATE SET language=excluded.language, updated_at=excluded.updated_at`,
+  ).bind(telegramUserID, locale, new Date().toISOString()).run();
+  await env.DB.prepare(
+    `UPDATE telegram_bookings SET language=?1, updated_at=?2 WHERE telegram_user_id=?3`,
+  ).bind(locale, new Date().toISOString(), telegramUserID).run();
+}
+
+async function savePinnedMessageID(env: Env, telegramUserID: number, locale: Locale, messageID: number): Promise<void> {
+  await ensureBotUXSchema(env);
+  await env.DB.prepare(
+    `INSERT INTO telegram_user_preferences(telegram_user_id, language, pinned_message_id, updated_at)
+     VALUES (?1, ?2, ?3, ?4)
+     ON CONFLICT(telegram_user_id) DO UPDATE SET language=excluded.language, pinned_message_id=excluded.pinned_message_id, updated_at=excluded.updated_at`,
+  ).bind(telegramUserID, locale, messageID, new Date().toISOString()).run();
+}
+
+function languageKeyboard(current?: Locale): Record<string, unknown> {
+  const label = (locale: Locale, text: string) => `${current === locale ? "✓ " : ""}${text}`;
+  return {
+    inline_keyboard: [
+      [
+        { text: label("ru", "Русский"), callback_data: "lang:ru" },
+        { text: label("en", "English"), callback_data: "lang:en" },
+      ],
+      [
+        { text: label("uz", "O‘zbekcha"), callback_data: "lang:uz" },
+        { text: label("uz_cyrl", "Ўзбекча"), callback_data: "lang:uz_cyrl" },
+      ],
+    ],
+  };
+}
+
+function pinnedKeyboard(env: Env, locale: Locale, runtimeBaseURL?: string): Record<string, unknown> {
+  const copy = botUX(locale);
+  const base = miniBaseURL(env, runtimeBaseURL);
+  const rows: Record<string, unknown>[][] = [];
+  if (base) rows.push([{ text: copy.openMini, web_app: { url: `${base}/mini` } }]);
+  rows.push([
+    { text: copy.status, callback_data: "home:status" },
+    { text: copy.support, callback_data: "home:support" },
+  ]);
+  return { inline_keyboard: rows };
+}
+
+function persistentReplyKeyboard(env: Env, locale: Locale, runtimeBaseURL?: string): Record<string, unknown> {
+  const copy = botUX(locale);
+  const base = miniBaseURL(env, runtimeBaseURL);
+  const rows: Record<string, unknown>[][] = [];
+  if (base) rows.push([{ text: copy.openMini, web_app: { url: `${base}/mini` } }]);
+  rows.push([{ text: copy.status }, { text: copy.support }]);
+  return { keyboard: rows, resize_keyboard: true, is_persistent: true, input_field_placeholder: "iumrah" };
+}
+
+async function setMiniAppMenuButton(env: Env, chatID: number, locale: Locale, runtimeBaseURL?: string): Promise<void> {
+  const base = miniBaseURL(env, runtimeBaseURL);
+  if (!base) return;
+  try {
+    await telegramCall(env, "setChatMenuButton", {
+      chat_id: chatID,
+      menu_button: { type: "web_app", text: botUX(locale).openMini, web_app: { url: `${base}/mini` } },
+    });
+  } catch (error) {
+    console.error("setChatMenuButton failed", chatID, error);
+  }
+}
+
+async function sendLanguageSelector(env: Env, chatID: number, current?: Locale): Promise<void> {
+  const copy = botUX(current ?? "ru");
+  await sendMessage(env, chatID, `<b>${escapeHtml(copy.chooseLanguage)}</b>`, languageKeyboard(current));
+}
+
+async function ensurePinnedMiniAppMessage(env: Env, chatID: number, telegramUserID: number, locale: Locale, runtimeBaseURL?: string): Promise<void> {
+  const copy = botUX(locale);
+  const text = `<b>${escapeHtml(copy.pinnedTitle)}</b>\n\n${escapeHtml(copy.pinnedBody)}`;
+  const pref = await getUserPreference(env, telegramUserID);
+  const existing = Number(pref?.pinned_message_id || 0);
+  if (existing > 0) {
+    try {
+      await editMessage(env, chatID, existing, text, pinnedKeyboard(env, locale, runtimeBaseURL));
+      return;
+    } catch (error) {
+      console.error("edit pinned welcome failed", chatID, error);
+    }
+  }
+  const message = await sendMessage(env, chatID, text, pinnedKeyboard(env, locale, runtimeBaseURL));
+  await savePinnedMessageID(env, telegramUserID, locale, message.message_id);
+  try {
+    await telegramCall(env, "pinChatMessage", { chat_id: chatID, message_id: message.message_id, disable_notification: true });
+  } catch (error) {
+    console.error("pinChatMessage failed", chatID, error);
+  }
+}
+
+async function sendBotHome(env: Env, chatID: number, telegramUserID: number, locale: Locale, runtimeBaseURL?: string, includeStatus = true): Promise<void> {
+  const copy = botUX(locale);
+  await setMiniAppMenuButton(env, chatID, locale, runtimeBaseURL);
+  await ensurePinnedMiniAppMessage(env, chatID, telegramUserID, locale, runtimeBaseURL);
+  await sendMessage(
+    env,
+    chatID,
+    `<b>${escapeHtml(copy.welcomeTitle)}</b>\n\n${escapeHtml(copy.welcomeBody)}`,
+    persistentReplyKeyboard(env, locale, runtimeBaseURL),
+  );
+  if (includeStatus) await showBookings(env, chatID, telegramUserID, runtimeBaseURL, locale);
+}
+
+async function sendSupportHome(env: Env, chatID: number, locale: Locale, runtimeBaseURL?: string): Promise<void> {
+  const copy = botUX(locale);
+  const base = miniBaseURL(env, runtimeBaseURL);
+  const rows: Record<string, unknown>[][] = [];
+  if (base) rows.push([{ text: copy.support, web_app: { url: `${base}/mini?tab=care` } }]);
+  rows.push([{ text: copy.website, url: "https://iumrah.app" }]);
+  await sendMessage(
+    env,
+    chatID,
+    `<b>${escapeHtml(copy.supportTitle)}</b>\n\n${escapeHtml(copy.supportBody)}`,
+    { inline_keyboard: rows },
+  );
 }
 
 function parseTripPayload(value: unknown): ClientTripResponse | null {
@@ -664,11 +904,20 @@ function lifecycleTitle(locale: Locale, kind: Lifecycle["kind"]): string {
 }
 
 function bookingKeyboard(env: Env, bookingID: string, locale: Locale, runtimeBaseURL?: string): Record<string, unknown> {
-  const strings = textFor(locale).actions;
-  const rows: Record<string, unknown>[][] = [[{ text: strings.refresh, callback_data: `refresh:${bookingID}` }]];
-  const configuredBase = clean(runtimeBaseURL || env.PUBLIC_BASE_URL, 512).replace(/\/+$/, "");
-  if (configuredBase) rows.push([{ text: strings.liveTimer, web_app: { url: `${configuredBase}/mini?booking=${encodeURIComponent(bookingID)}` } }]);
-  rows.push([{ text: strings.openIumrah, url: "https://iumrah.app/account" }]);
+  const statusStrings = textFor(locale).actions;
+  const ux = botUX(locale);
+  const rows: Record<string, unknown>[][] = [];
+  const configuredBase = miniBaseURL(env, runtimeBaseURL);
+  if (configuredBase) {
+    rows.push([{ text: ux.openMini, web_app: { url: `${configuredBase}/mini?booking=${encodeURIComponent(bookingID)}` } }]);
+    rows.push([
+      { text: statusStrings.refresh, callback_data: `refresh:${bookingID}` },
+      { text: ux.support, web_app: { url: `${configuredBase}/mini?booking=${encodeURIComponent(bookingID)}&tab=care` } },
+    ]);
+  } else {
+    rows.push([{ text: statusStrings.refresh, callback_data: `refresh:${bookingID}` }]);
+  }
+  rows.push([{ text: ux.website, url: "https://iumrah.app/account" }]);
   return { inline_keyboard: rows };
 }
 
@@ -818,12 +1067,16 @@ async function claimLinkToken(env: Env, message: TelegramMessage, user: Telegram
     env.DB.prepare("UPDATE telegram_link_tokens SET used_at=?1 WHERE token_hash=?2 AND used_at IS NULL").bind(now, hash),
   ]);
 
+  await saveUserLocale(env, user.id, locale);
+  await setMiniAppMenuButton(env, message.chat.id, locale, runtimeBaseURL);
+  await ensurePinnedMiniAppMessage(env, message.chat.id, user.id, locale, runtimeBaseURL);
   await sendMessage(
     env,
     message.chat.id,
     `<b>${escapeHtml(strings.generic.linkSuccessTitle)}</b>
 
 ${escapeHtml(fmt(strings.generic.linkSuccessBody, bookingReference(payload.trip)))}` ,
+    persistentReplyKeyboard(env, locale, runtimeBaseURL),
   );
   await sendStatusCard(env, message.chat.id, payload, locale, runtimeBaseURL);
   return true;
@@ -838,18 +1091,23 @@ async function linkedRowsForUser(env: Env, userID: number): Promise<LinkedBookin
   return result.results ?? [];
 }
 
-async function showBookings(env: Env, chatId: number, userID: number, runtimeBaseURL?: string): Promise<void> {
+async function showBookings(env: Env, chatId: number, userID: number, runtimeBaseURL?: string, preferredLocale?: Locale): Promise<void> {
   const rows = await linkedRowsForUser(env, userID);
-  const locale = normalizeLocale(rows[0]?.language || 'ru');
+  const locale = preferredLocale ?? normalizeLocale(rows[0]?.language || 'ru');
   const strings = textFor(locale);
   if (!rows.length) {
-    await sendMessage(env, chatId, `<b>${escapeHtml(strings.generic.bookingNotLinkedTitle)}</b>
+    await sendMessage(
+      env,
+      chatId,
+      `<b>${escapeHtml(strings.generic.bookingNotLinkedTitle)}</b>
 
-${escapeHtml(strings.generic.bookingNotLinkedBody)}`);
+${escapeHtml(strings.generic.bookingNotLinkedBody)}`,
+      persistentReplyKeyboard(env, locale, runtimeBaseURL),
+    );
     return;
   }
   for (const row of rows.slice(0, 3)) {
-    const rowLocale = normalizeLocale(row.language || locale);
+    const rowLocale = preferredLocale ?? normalizeLocale(row.language || locale);
     const rowStrings = textFor(rowLocale);
     try {
       const token = await decryptSecret(env, row.booking_token_ciphertext, row.booking_token_iv);
@@ -891,6 +1149,36 @@ async function refreshBooking(env: Env, callback: TelegramCallbackQuery, booking
 
 async function handleCallback(env: Env, callback: TelegramCallbackQuery, runtimeBaseURL?: string): Promise<void> {
   const data = clean(callback.data, 128);
+  const message = callback.message;
+  const chatID = message?.chat.id;
+  if (data.startsWith("lang:")) {
+    if (!chatID) return;
+    const raw = data.slice("lang:".length);
+    const locale = (["ru", "en", "uz", "uz_cyrl"] as Locale[]).includes(raw as Locale) ? raw as Locale : "ru";
+    await saveUserLocale(env, callback.from.id, locale);
+    await answerCallback(env, callback.id, botUX(locale).languageSaved);
+    try {
+      await editMessage(env, chatID, message.message_id, `<b>${escapeHtml(botUX(locale).languageSaved)}</b>`, languageKeyboard(locale));
+    } catch { /* message may be too old or unchanged */ }
+    await sendBotHome(env, chatID, callback.from.id, locale, runtimeBaseURL, true);
+    return;
+  }
+  if (data === "home:status") {
+    if (!chatID) return;
+    const pref = await getUserPreference(env, callback.from.id);
+    const locale = normalizeLocale(pref?.language || callback.from.language_code || "ru");
+    await answerCallback(env, callback.id);
+    await showBookings(env, chatID, callback.from.id, runtimeBaseURL, locale);
+    return;
+  }
+  if (data === "home:support") {
+    if (!chatID) return;
+    const pref = await getUserPreference(env, callback.from.id);
+    const locale = normalizeLocale(pref?.language || callback.from.language_code || "ru");
+    await answerCallback(env, callback.id);
+    await sendSupportHome(env, chatID, locale, runtimeBaseURL);
+    return;
+  }
   if (data.startsWith("refresh:")) {
     await refreshBooking(env, callback, data.slice("refresh:".length), runtimeBaseURL);
     return;
@@ -901,34 +1189,45 @@ async function handleCallback(env: Env, callback: TelegramCallbackQuery, runtime
 async function handleMessage(env: Env, message: TelegramMessage, runtimeBaseURL?: string): Promise<void> {
   const text = message.text?.trim();
   if (!text || !message.from) return;
-  const userLocale = normalizeLocale(message.from.language_code || 'ru');
-  const strings = textFor(userLocale);
+  const pref = await getUserPreference(env, message.from.id);
+  const savedLocale = normalizeLocale(pref?.language || message.from.language_code || 'ru');
+  const strings = textFor(savedLocale);
+  const ux = botUX(savedLocale);
   const start = text.match(/^\/start(?:@\w+)?(?:\s+([A-Za-z0-9_-]+))?$/i);
   if (start) {
     const parameter = start[1] ?? '';
     if (parameter.startsWith('link_')) {
       const ok = await claimLinkToken(env, message, message.from, parameter.slice(5), runtimeBaseURL);
       if (!ok) {
-        await sendMessage(env, message.chat.id, `<b>${escapeHtml(strings.generic.linkExpiredTitle)}</b>
-
-${escapeHtml(strings.generic.linkExpiredBody)}`);
+        await sendMessage(env, message.chat.id, `<b>${escapeHtml(strings.generic.linkExpiredTitle)}</b>\n\n${escapeHtml(strings.generic.linkExpiredBody)}`);
       }
       return;
     }
-    await showBookings(env, message.chat.id, message.from.id, runtimeBaseURL);
+    await sendLanguageSelector(env, message.chat.id, pref ? savedLocale : undefined);
     return;
   }
-  if (/^\/(booking|status)(?:@\w+)?$/i.test(text)) {
-    await showBookings(env, message.chat.id, message.from.id, runtimeBaseURL);
+  if (/^\/language(?:@\w+)?$/i.test(text)) {
+    await sendLanguageSelector(env, message.chat.id, savedLocale);
+    return;
+  }
+  if (/^\/(booking|status)(?:@\w+)?$/i.test(text) || text === ux.status || Object.values(BOT_UX).some(v => v.status === text)) {
+    await showBookings(env, message.chat.id, message.from.id, runtimeBaseURL, savedLocale);
+    return;
+  }
+  if (text === ux.support || Object.values(BOT_UX).some(v => v.support === text)) {
+    await sendSupportHome(env, message.chat.id, savedLocale, runtimeBaseURL);
     return;
   }
   if (/^\/help(?:@\w+)?$/i.test(text)) {
-    await sendMessage(env, message.chat.id, `<b>${escapeHtml(strings.generic.helpTitle)}</b>
-
-${escapeHtml(strings.generic.helpBody)}`);
+    await sendMessage(
+      env,
+      message.chat.id,
+      `<b>${escapeHtml(strings.generic.helpTitle)}</b>\n\n${escapeHtml(strings.generic.helpBody)}\n/language — Language`,
+      persistentReplyKeyboard(env, savedLocale, runtimeBaseURL),
+    );
     return;
   }
-  await showBookings(env, message.chat.id, message.from.id, runtimeBaseURL);
+  await sendBotHome(env, message.chat.id, message.from.id, savedLocale, runtimeBaseURL, false);
 }
 
 async function handleUpdate(env: Env, update: TelegramUpdate, runtimeBaseURL?: string): Promise<void> {
@@ -1207,7 +1506,7 @@ async function miniAction(request: Request, env: Env): Promise<Response> {
     };
     result = await fetchWebJSON(env, `/api/package/booking/${encodeURIComponent(bookingID)}`, token, { method: "PATCH", body: JSON.stringify(updateBody) });
   } else if (action === "delete") {
-    result = await fetchWebJSON(env, `/api/catalog/hotels/client/bookings/${encodeURIComponent(bookingID)}`, token, { method: "DELETE" });
+    result = await fetchWebJSON(env, `/api/bookings/${encodeURIComponent(bookingID)}`, token, { method: "DELETE" });
     if (result.status >= 200 && result.status < 300) {
       await env.DB.prepare("DELETE FROM telegram_bookings WHERE telegram_user_id=?1 AND booking_id=?2").bind(user.id, bookingID).run();
     }
@@ -1339,7 +1638,7 @@ export default {
     } catch { /* The health endpoint can still respond before a first migration in local development. */ }
 
     if (request.method === "GET" && url.pathname === "/health") {
-      return json({ ok: true, service: "iumrah-telegram-bot", version: "1.4.1", apiOrigin: apiOrigin(env), iumrahWebBinding: Boolean(env.IUMRAH_WEB) });
+      return json({ ok: true, service: "iumrah-telegram-bot", version: "1.6.0", apiOrigin: apiOrigin(env), iumrahWebBinding: Boolean(env.IUMRAH_WEB) });
     }
     if (request.method === "GET" && /^\/status-image\/[a-z_]+\.webp$/.test(url.pathname)) {
       const key = url.pathname.split("/").pop()?.replace(/\.webp$/, "") || "";
@@ -1357,10 +1656,6 @@ export default {
     if (request.method === "POST" && url.pathname === "/mini/hotels") return miniHotels(request, env);
     if (request.method === "POST" && url.pathname === "/mini/hotel") return miniHotel(request, env);
     if (request.method === "POST" && url.pathname === "/mini/action") return miniAction(request, env);
-    if (request.method === "POST" && url.pathname === "/mini/care/messages") return miniCareMessages(request, env);
-    if (request.method === "POST" && url.pathname === "/mini/care/send") return miniCareSend(request, env);
-    if (request.method === "POST" && url.pathname === "/mini/care/photo") return miniCarePhoto(request, env);
-    if (request.method === "POST" && url.pathname === "/mini/care/attachment") return miniCareAttachment(request, env);
     if (request.method === "POST" && url.pathname === "/mini/snapshot") return miniSnapshot(request, env);
     if (request.method === "POST" && url.pathname === "/internal/link-token") return createLinkToken(request, env);
     if (request.method === "POST" && url.pathname === "/internal/booking-event") return bookingEvent(request, env);
