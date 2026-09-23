@@ -21,6 +21,10 @@
     {
       "binding": "IUMRAH_WEB",
       "service": "iumrah-web"
+    },
+    {
+      "binding": "IUMRAH_PACKAGE_API",
+      "service": "iumrah-package-api"
     }
   ]
 }

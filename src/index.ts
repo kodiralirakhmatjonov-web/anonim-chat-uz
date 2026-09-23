@@ -171,6 +171,7 @@ interface Env {
   PUBLIC_BASE_URL?: string;
   LINK_ENCRYPTION_KEY?: string;
   IUMRAH_WEB?: FetcherLike;
+  IUMRAH_PACKAGE_API?: FetcherLike;
   DB: D1Database;
 }
 
@@ -704,67 +705,32 @@ function parseWebBookingPayload(value: unknown): ClientTripResponse | null {
 async function fetchTrip(env: Env, bookingID: string, bookingToken: string): Promise<ClientTripResponse> {
   const headers = { accept: "application/json", "x-booking-token": bookingToken };
 
-  // Primary path: stay inside Cloudflare. This avoids a Worker -> public
-  // iumrah.app round-trip, which can produce Cloudflare 522 even while the
-  // iumrah Web Worker itself is healthy. The web booking endpoint validates
-  // the same high-entropy booking token against the canonical D1 booking row.
-  if (env.IUMRAH_WEB && typeof env.IUMRAH_WEB.fetch === "function") {
-    try {
-      const internalRequest = new Request(
-        `https://iumrah-web.internal/api/bookings/${encodeURIComponent(bookingID)}`,
-        { method: "GET", headers, redirect: "manual" },
-      );
-      const response = await env.IUMRAH_WEB.fetch(internalRequest);
-      if (response.ok) {
-        const payload = parseWebBookingPayload(await response.json());
-        if (payload && payload.trip.bookingID === bookingID) return payload;
-        throw new Error("INVALID_WEB_BOOKING_RESPONSE");
-      }
-      if (response.status === 404 || response.status === 401) throw new Error("BOOKING_NOT_FOUND");
-      console.error("internal iumrah web booking lookup failed", bookingID, response.status);
-    } catch (error) {
-      if (error instanceof Error && (error.message === "BOOKING_NOT_FOUND" || error.message === "INVALID_WEB_BOOKING_RESPONSE")) throw error;
-      console.error("internal iumrah web service binding failed; trying public fallback", bookingID, error);
-    }
-  }
-
-  // Compatibility fallback for local development / deployments where the
-  // Service Binding has not been applied yet.
-  let operationalStatus = 0;
+  // Canonical operational status comes directly from the iumrah server.
   try {
-    const response = await fetch(`${apiOrigin(env)}/api/catalog/hotels/client/trips/${encodeURIComponent(bookingID)}`, {
-      method: "GET",
-      headers,
-      redirect: "manual",
+    const response = await fetch(`${serverOrigin(env)}/api/catalog/hotels/client/trips/${encodeURIComponent(bookingID)}`, {
+      method: "GET", headers, redirect: "manual",
     });
-    operationalStatus = response.status;
     if (response.ok) {
       const payload = parseTripPayload(await response.json());
       if (payload && payload.trip.bookingID === bookingID) return payload;
     }
+    if (response.status === 404 || response.status === 401) throw new Error("BOOKING_NOT_FOUND");
+    console.error("direct operational trip lookup failed", bookingID, response.status);
   } catch (error) {
-    console.error("operational trip lookup failed; trying public web booking fallback", bookingID, error);
+    if (error instanceof Error && error.message === "BOOKING_NOT_FOUND") throw error;
+    console.error("direct operational trip request failed", bookingID, error);
   }
 
-  try {
-    const fallback = await fetch(`${apiOrigin(env)}/api/bookings/${encodeURIComponent(bookingID)}`, {
-      method: "GET",
-      headers,
-      redirect: "manual",
-    });
-    if (fallback.ok) {
-      const payload = parseWebBookingPayload(await fallback.json());
-      if (payload && payload.trip.bookingID === bookingID) return payload;
-      throw new Error("INVALID_WEB_BOOKING_RESPONSE");
-    }
-    if (fallback.status === 404 || fallback.status === 401) throw new Error("BOOKING_NOT_FOUND");
-    throw new Error(`IUMRAH_WEB_API_${fallback.status}`);
-  } catch (error) {
-    if (error instanceof Error && error.message !== "BOOKING_NOT_FOUND" && operationalStatus && operationalStatus !== 404 && operationalStatus !== 401) {
-      throw new Error(`IUMRAH_API_${operationalStatus}`);
-    }
-    throw error instanceof Error ? error : new Error("BOOKING_NOT_FOUND");
+  // Compatibility read fallback. No website update is required; this only uses
+  // the already-deployed GET route if the operational trip service is unavailable.
+  const fallback = await fetchExistingWebRead(env, `/api/bookings/${encodeURIComponent(bookingID)}`, bookingToken);
+  if (fallback.status === 200) {
+    const payload = parseWebBookingPayload(fallback.body);
+    if (payload && payload.trip.bookingID === bookingID) return payload;
+    throw new Error("INVALID_BOOKING_RESPONSE");
   }
+  if (fallback.status === 404 || fallback.status === 401) throw new Error("BOOKING_NOT_FOUND");
+  throw new Error(`IUMRAH_API_${fallback.status}`);
 }
 
 function dateMs(value: string | null | undefined): number | null {
@@ -1331,27 +1297,75 @@ function serveMiniAsset(key: string): Response {
   });
 }
 
-async function fetchWebJSON(env: Env, path: string, bookingToken: string, init?: RequestInit): Promise<{ status: number; body: any }> {
-  if (!env.IUMRAH_WEB || typeof env.IUMRAH_WEB.fetch !== "function") return { status: 503, body: { error: "IUMRAH_WEB_BINDING_MISSING" } };
+function serverOrigin(env: Env): string {
+  return normalizeOrigin(env.IUMRAH_API_ORIGIN);
+}
+
+async function fetchServerJSON(env: Env, path: string, bookingToken: string, init?: RequestInit): Promise<{ status: number; body: any }> {
   const headers = new Headers(init?.headers || {});
   headers.set("accept", "application/json");
-  headers.set("x-booking-token", bookingToken);
+  if (bookingToken) headers.set("x-booking-token", bookingToken);
   if (init?.body && !headers.has("content-type")) headers.set("content-type", "application/json");
-  const response = await env.IUMRAH_WEB.fetch(new Request(`https://iumrah-web.internal${path}`, { ...init, headers, redirect: "manual" }));
-  let body: any = null;
-  try { body = await response.json(); } catch { body = null; }
-  return { status: response.status, body };
+  try {
+    const response = await fetch(`${serverOrigin(env)}${path}`, { ...init, headers, redirect: "manual" });
+    let body: any = null;
+    try { body = await response.json(); } catch { body = null; }
+    return { status: response.status, body };
+  } catch (error) {
+    console.error("iumrah direct server request failed", path, error);
+    return { status: 502, body: { error: "IUMRAH_SERVER_UNREACHABLE" } };
+  }
+}
+
+async function fetchPackageServerJSON(env: Env, path: string, bookingToken: string, init?: RequestInit): Promise<{ status: number; body: any }> {
+  const headers = new Headers(init?.headers || {});
+  headers.set("accept", "application/json");
+  if (bookingToken) headers.set("x-booking-token", bookingToken);
+  if (init?.body && !headers.has("content-type")) headers.set("content-type", "application/json");
+
+  if (env.IUMRAH_PACKAGE_API && typeof env.IUMRAH_PACKAGE_API.fetch === "function") {
+    try {
+      const response = await env.IUMRAH_PACKAGE_API.fetch(new Request(`https://iumrah-package-api.internal${path}`, { ...init, headers, redirect: "manual" }));
+      let body: any = null;
+      try { body = await response.json(); } catch { body = null; }
+      return { status: response.status, body };
+    } catch (error) {
+      console.error("iumrah PackageEngine service binding failed; trying public server", path, error);
+    }
+  }
+  return fetchServerJSON(env, path, bookingToken, init);
+}
+
+async function fetchExistingWebRead(env: Env, path: string, bookingToken: string, init?: RequestInit): Promise<{ status: number; body: any }> {
+  // Existing web read routes remain a compatibility fallback only. V7.5 does not
+  // require any website code changes and all booking mutations go directly to
+  // PackageEngine / Hotels backend routes.
+  if (!env.IUMRAH_WEB || typeof env.IUMRAH_WEB.fetch !== "function") {
+    return fetchServerJSON(env, path, bookingToken, init);
+  }
+  const headers = new Headers(init?.headers || {});
+  headers.set("accept", "application/json");
+  if (bookingToken) headers.set("x-booking-token", bookingToken);
+  if (init?.body && !headers.has("content-type")) headers.set("content-type", "application/json");
+  try {
+    const response = await env.IUMRAH_WEB.fetch(new Request(`https://iumrah-web.internal${path}`, { ...init, headers, redirect: "manual" }));
+    let body: any = null;
+    try { body = await response.json(); } catch { body = null; }
+    return { status: response.status, body };
+  } catch {
+    return fetchServerJSON(env, path, bookingToken, init);
+  }
 }
 
 async function miniBookingBundle(env: Env, row: LinkedBookingRow): Promise<any | null> {
   try {
     const token = await decryptSecret(env, row.booking_token_ciphertext, row.booking_token_iv);
-    const primary = await fetchWebJSON(env, `/api/bookings/${encodeURIComponent(row.booking_id)}`, token);
+    const primary = await fetchExistingWebRead(env, `/api/bookings/${encodeURIComponent(row.booking_id)}`, token);
     if (primary.status !== 200 || !primary.body?.booking) return null;
     const payload = await fetchTrip(env, row.booking_id, token);
     const optional = async (path: string) => {
       try {
-        const result = await fetchWebJSON(env, path, token);
+        const result = await fetchServerJSON(env, path, token);
         return result.status === 200 ? result.body : null;
       } catch { return null; }
     };
@@ -1398,7 +1412,7 @@ async function miniBootstrap(request: Request, env: Env): Promise<Response> {
   let careProfile: any = null;
   try {
     const token = await decryptSecret(env, rows[0].booking_token_ciphertext, rows[0].booking_token_iv);
-    const team = await fetchWebJSON(env, "/api/catalog/hotels/team", token);
+    const team = await fetchServerJSON(env, "/api/catalog/hotels/team", token);
     const members = Array.isArray(team.body?.members) ? team.body.members : [];
     careProfile = members.find((member: any) => member?.isOwner === true) || members[0] || null;
   } catch { careProfile = null; }
@@ -1428,7 +1442,7 @@ async function miniHotels(request: Request, env: Env): Promise<Response> {
   const role = clean(context.body.role, 16).toLowerCase();
   if (role !== "makkah" && role !== "madinah") return json({ error: "INVALID_HOTEL_ROLE" }, 400);
   const city = role === "madinah" ? "Madinah" : "Makkah";
-  const result = await fetchWebJSON(env, `/api/catalog/hotels?city=${encodeURIComponent(city)}`, context.token);
+  const result = await fetchServerJSON(env, `/api/catalog/hotels?city=${encodeURIComponent(city)}`, context.token);
   if (result.status < 200 || result.status >= 300) return json({ error: result.body?.error || `HOTEL_LIST_${result.status}` }, result.status || 502);
   return json({ ok: true, role, hotels: Array.isArray(result.body?.hotels) ? result.body.hotels : [] });
 }
@@ -1439,8 +1453,8 @@ async function miniHotel(request: Request, env: Env): Promise<Response> {
   const hotelID = clean(context.body.hotelId, 128);
   if (!hotelID) return json({ error: "INVALID_HOTEL" }, 400);
   const [detail, categories] = await Promise.all([
-    fetchWebJSON(env, `/api/catalog/hotels/${encodeURIComponent(hotelID)}`, context.token),
-    fetchWebJSON(env, `/api/package/hotel/${encodeURIComponent(hotelID)}/room-categories`, context.token),
+    fetchServerJSON(env, `/api/catalog/hotels/${encodeURIComponent(hotelID)}`, context.token),
+    fetchPackageServerJSON(env, `/api/package/hotel/${encodeURIComponent(hotelID)}/room-categories`, context.token),
   ]);
   if (detail.status < 200 || detail.status >= 300 || !detail.body?.hotel) return json({ error: detail.body?.error || `HOTEL_DETAIL_${detail.status}` }, detail.status || 502);
   return json({ ok: true, hotel: detail.body.hotel, categories: Array.isArray(categories.body?.categories) ? categories.body.categories : [] });
@@ -1464,28 +1478,28 @@ async function miniAction(request: Request, env: Env): Promise<Response> {
   const payload = body.payload && typeof body.payload === "object" ? body.payload as Record<string, unknown> : {};
   let result: { status: number; body: any };
   if (action === "contacts") {
-    result = await fetchWebJSON(env, `/api/package/booking/${encodeURIComponent(bookingID)}/contact`, token, {
+    result = await fetchPackageServerJSON(env, `/api/package/booking/${encodeURIComponent(bookingID)}/contact`, token, {
       method: "PATCH", body: JSON.stringify({ telegram: clean(payload.telegram, 128), whatsapp: clean(payload.whatsapp, 128) }),
     });
   } else if (action === "customization") {
     const out: Record<string, boolean> = {};
     for (const key of ["ziyaratMakkah", "ziyaratMadinah", "esim"]) if (typeof payload[key] === "boolean") out[key] = payload[key] as boolean;
     if (!Object.keys(out).length) return json({ error: "INVALID_CUSTOMIZATION" }, 400);
-    result = await fetchWebJSON(env, `/api/package/booking/${encodeURIComponent(bookingID)}/customization`, token, { method: "PATCH", body: JSON.stringify(out) });
+    result = await fetchPackageServerJSON(env, `/api/package/booking/${encodeURIComponent(bookingID)}/customization`, token, { method: "PATCH", body: JSON.stringify(out) });
   } else if (action === "hotel") {
     const role = clean(payload.role, 16).toLowerCase();
     const hotelID = clean(payload.hotelId, 128);
     const roomID = clean(payload.roomId, 128);
     const categoryID = clean(payload.categoryId, 128);
     if ((role !== "makkah" && role !== "madinah") || !hotelID) return json({ error: "INVALID_HOTEL_SELECTION" }, 400);
-    const detail = await fetchWebJSON(env, `/api/catalog/hotels/${encodeURIComponent(hotelID)}`, token);
+    const detail = await fetchServerJSON(env, `/api/catalog/hotels/${encodeURIComponent(hotelID)}`, token);
     if (detail.status !== 200 || !detail.body?.hotel) return json({ error: detail.body?.error || "HOTEL_NOT_FOUND" }, detail.status || 404);
     const hotel = detail.body.hotel as Record<string, any>;
     const rooms = Array.isArray(hotel.rooms) ? hotel.rooms : [];
     const room = roomID ? rooms.find((item: any) => clean(item?.id, 128) === roomID) : null;
     let category: any = null;
     if (categoryID) {
-      const categories = await fetchWebJSON(env, `/api/package/hotel/${encodeURIComponent(hotelID)}/room-categories`, token);
+      const categories = await fetchPackageServerJSON(env, `/api/package/hotel/${encodeURIComponent(hotelID)}/room-categories`, token);
       category = Array.isArray(categories.body?.categories) ? categories.body.categories.find((item: any) => clean(item?.id, 128) === categoryID) : null;
       if (!category) return json({ error: "ROOM_CATEGORY_NOT_FOUND" }, 404);
     }
@@ -1504,12 +1518,44 @@ async function miniAction(request: Request, env: Env): Promise<Response> {
       roomCategory: category ? clean(category.category, 32) || null : null,
       roomSource: category ? "iumrahPrimary" : room ? "hotelInventory" : null,
     };
-    result = await fetchWebJSON(env, `/api/package/booking/${encodeURIComponent(bookingID)}`, token, { method: "PATCH", body: JSON.stringify(updateBody) });
+    result = await fetchPackageServerJSON(env, `/api/package/booking/${encodeURIComponent(bookingID)}`, token, { method: "PATCH", body: JSON.stringify(updateBody) });
   } else if (action === "delete") {
-    result = await fetchWebJSON(env, `/api/bookings/${encodeURIComponent(bookingID)}`, token, { method: "DELETE" });
-    if (result.status >= 200 && result.status < 300) {
-      await env.DB.prepare("DELETE FROM telegram_bookings WHERE telegram_user_id=?1 AND booking_id=?2").bind(user.id, bookingID).run();
+    // The iOS client uses the Hotels backend booking-control route. Call that
+    // directly first so the operational trip layer can clean up its state too.
+    const clientDelete = await fetchServerJSON(
+      env,
+      `/api/catalog/hotels/client/bookings/${encodeURIComponent(bookingID)}`,
+      token,
+      { method: "DELETE" },
+    );
+
+    // PackageEngine owns the canonical bookings DB and exposes the same hard
+    // delete by booking token. Calling it as well makes deletion durable even
+    // when the client/operational route is not deployed on a given environment.
+    const packageDelete = await fetchPackageServerJSON(
+      env,
+      `/api/package/booking/${encodeURIComponent(bookingID)}`,
+      token,
+      { method: "DELETE" },
+    );
+
+    const clientOK = clientDelete.status >= 200 && clientDelete.status < 300;
+    const packageOK = packageDelete.status >= 200 && packageDelete.status < 300;
+    const alreadyGone = (clientDelete.status === 404 && packageDelete.status === 404);
+    if (!clientOK && !packageOK && !alreadyGone) {
+      const preferred = packageDelete.status !== 404 && packageDelete.status !== 405 ? packageDelete : clientDelete;
+      return json({
+        error: preferred.body?.error || `BOOKING_DELETE_${preferred.status}`,
+        clientStatus: clientDelete.status,
+        packageStatus: packageDelete.status,
+      }, preferred.status || 502);
     }
+
+    await env.DB.batch([
+      env.DB.prepare("DELETE FROM telegram_bookings WHERE telegram_user_id=?1 AND booking_id=?2").bind(user.id, bookingID),
+      env.DB.prepare("DELETE FROM telegram_link_tokens WHERE booking_id=?1").bind(bookingID),
+    ]);
+    result = { status: 200, body: { ok: true, deleted: true, clientStatus: clientDelete.status, packageStatus: packageDelete.status } };
   } else {
     return json({ error: "UNSUPPORTED_ACTION" }, 400);
   }
@@ -1517,14 +1563,40 @@ async function miniAction(request: Request, env: Env): Promise<Response> {
   return json({ ok: true, result: result.body });
 }
 
+async function miniCareCall(request: Request, env: Env): Promise<Response> {
+  const context = await miniHotelContext(request, env);
+  if (context instanceof Response) return context;
+
+  let phone = "+998508898845";
+  try {
+    const team = await fetchServerJSON(env, "/api/catalog/hotels/team", context.token);
+    const members = Array.isArray(team.body?.members) ? team.body.members : [];
+    const care = members.find((member: any) => member?.isOwner === true) || members[0] || null;
+    const candidate = clean(care?.phoneUZ || care?.phone || "", 64).replace(/[^0-9+]/g, "");
+    if (candidate.length >= 7) phone = candidate;
+  } catch { /* use the production Care fallback number */ }
+
+  try {
+    await telegramCall(env, "sendContact", {
+      chat_id: context.row.chat_id,
+      phone_number: phone,
+      first_name: "iumrah Care",
+    });
+    return json({ ok: true, phone, deliveredToTelegram: true });
+  } catch (error) {
+    console.error("care contact delivery failed", error);
+    return json({ error: "CARE_CALL_CONTACT_FAILED", phone }, 502);
+  }
+}
+
 async function miniCareMessages(request: Request, env: Env): Promise<Response> {
   const context = await miniHotelContext(request, env);
   if (context instanceof Response) return context;
   const bookingID = context.row.booking_id;
-  const result = await fetchWebJSON(env, `/api/catalog/hotels/client/chats/${encodeURIComponent(bookingID)}/messages`, context.token);
+  const result = await fetchServerJSON(env, `/api/catalog/hotels/client/chats/${encodeURIComponent(bookingID)}/messages`, context.token);
   if (result.status < 200 || result.status >= 300) return json({ error: result.body?.error || `CARE_MESSAGES_${result.status}` }, result.status || 502);
   try {
-    await fetchWebJSON(env, `/api/catalog/hotels/client/chats/${encodeURIComponent(bookingID)}/read`, context.token, {
+    await fetchServerJSON(env, `/api/catalog/hotels/client/chats/${encodeURIComponent(bookingID)}/read`, context.token, {
       method: "POST", body: JSON.stringify({}),
     });
   } catch { /* read receipts are best-effort */ }
@@ -1537,7 +1609,7 @@ async function miniCareSend(request: Request, env: Env): Promise<Response> {
   const bookingID = context.row.booking_id;
   const body = clean(context.body.message, 4000);
   if (!body) return json({ error: "EMPTY_MESSAGE" }, 400);
-  const result = await fetchWebJSON(env, `/api/catalog/hotels/client/chats/${encodeURIComponent(bookingID)}/messages`, context.token, {
+  const result = await fetchServerJSON(env, `/api/catalog/hotels/client/chats/${encodeURIComponent(bookingID)}/messages`, context.token, {
     method: "POST",
     body: JSON.stringify({ body, clientMessageID: crypto.randomUUID() }),
   });
@@ -1638,7 +1710,7 @@ export default {
     } catch { /* The health endpoint can still respond before a first migration in local development. */ }
 
     if (request.method === "GET" && url.pathname === "/health") {
-      return json({ ok: true, service: "iumrah-telegram-bot", version: "1.6.0", apiOrigin: apiOrigin(env), iumrahWebBinding: Boolean(env.IUMRAH_WEB) });
+      return json({ ok: true, service: "iumrah-telegram-bot", version: "1.7.0", apiOrigin: serverOrigin(env), directServer: true, packageBinding: Boolean(env.IUMRAH_PACKAGE_API), iumrahWebReadFallback: Boolean(env.IUMRAH_WEB) });
     }
     if (request.method === "GET" && /^\/status-image\/[a-z_]+\.webp$/.test(url.pathname)) {
       const key = url.pathname.split("/").pop()?.replace(/\.webp$/, "") || "";
@@ -1656,6 +1728,7 @@ export default {
     if (request.method === "POST" && url.pathname === "/mini/hotels") return miniHotels(request, env);
     if (request.method === "POST" && url.pathname === "/mini/hotel") return miniHotel(request, env);
     if (request.method === "POST" && url.pathname === "/mini/action") return miniAction(request, env);
+    if (request.method === "POST" && url.pathname === "/mini/care/call") return miniCareCall(request, env);
     if (request.method === "POST" && url.pathname === "/mini/snapshot") return miniSnapshot(request, env);
     if (request.method === "POST" && url.pathname === "/internal/link-token") return createLinkToken(request, env);
     if (request.method === "POST" && url.pathname === "/internal/booking-event") return bookingEvent(request, env);
