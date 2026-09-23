@@ -1034,7 +1034,12 @@ function statusImageURL(baseURL: string | undefined, payload: ClientTripResponse
 function supportImageURL(baseURL: string | undefined, key: string): string | null {
   const base = clean(baseURL, 512).replace(/\/+$/, "");
   if (!base) return null;
-  return `${base}/support-image/${key}.jpg`;
+  const ext = key === 'sync_error' ? 'png' : 'jpg';
+  return `${base}/support-image/${key}.${ext}`;
+}
+
+function recoveryImageURL(baseURL: string | undefined): string | null {
+  return supportImageURL(baseURL, 'sync_error');
 }
 
 function decodeBase64(value: string): Uint8Array {
@@ -1064,6 +1069,20 @@ function serveSupportImage(key: string): Response {
       'cache-control': 'public, max-age=31536000, immutable',
     },
   });
+}
+
+async function sendBookingRecoveryMessage(env: Env, chatId: number, bookingID: string, locale: Locale, runtimeBaseURL?: string): Promise<void> {
+  const strings = textFor(locale);
+  const caption = `<b>${escapeHtml(strings.generic.updateFailedTitle)}</b>
+
+<code>${escapeHtml(bookingID)}</code>
+${escapeHtml(strings.generic.reconnectPrompt)}`;
+  const photo = recoveryImageURL(runtimeBaseURL || env.PUBLIC_BASE_URL);
+  if (photo) {
+    await sendPhotoMessage(env, chatId, photo, caption, bookingRecoveryKeyboard(bookingID, locale));
+    return;
+  }
+  await sendMessage(env, chatId, caption, bookingRecoveryKeyboard(bookingID, locale));
 }
 
 async function sendStatusCard(env: Env, chatId: number, payload: ClientTripResponse, locale: Locale, runtimeBaseURL?: string): Promise<void> {
@@ -1213,15 +1232,7 @@ ${escapeHtml(strings.generic.bookingNotLinkedBody)}`,
       await sendStatusCard(env, chatId, payload, rowLocale, runtimeBaseURL);
     } catch (error) {
       console.error("booking sync failed", row.booking_id, error instanceof Error ? error.message : String(error));
-      await sendMessage(
-        env,
-        chatId,
-        `<b>${escapeHtml(rowStrings.generic.updateFailedTitle)}</b>
-
-<code>${escapeHtml(row.booking_id)}</code>
-${escapeHtml(rowStrings.generic.reconnectPrompt)}`,
-        bookingRecoveryKeyboard(row.booking_id, rowLocale),
-      );
+      await sendBookingRecoveryMessage(env, chatId, row.booking_id, rowLocale, runtimeBaseURL);
     }
   }
 }
@@ -1249,15 +1260,7 @@ async function refreshBooking(env: Env, callback: TelegramCallbackQuery, booking
   } catch (error) {
     console.error("booking refresh failed", bookingID, error instanceof Error ? error.message : String(error));
     await answerCallback(env, callback.id, strings.generic.callbackRefreshFailed);
-    await sendMessage(
-      env,
-      message.chat.id,
-      `<b>${escapeHtml(strings.generic.updateFailedTitle)}</b>
-
-<code>${escapeHtml(bookingID)}</code>
-${escapeHtml(strings.generic.reconnectPrompt)}`,
-      bookingRecoveryKeyboard(bookingID, locale),
-    );
+    await sendBookingRecoveryMessage(env, message.chat.id, bookingID, locale, runtimeBaseURL);
   }
 }
 
@@ -1915,14 +1918,14 @@ export default {
     } catch { /* The health endpoint can still respond before a first migration in local development. */ }
 
     if (request.method === "GET" && url.pathname === "/health") {
-      return json({ ok: true, service: "iumrah-telegram-bot", version: "1.7.2", apiOrigin: serverOrigin(env), directServer: true, packageBinding: Boolean(env.IUMRAH_PACKAGE_API), iumrahWebReadFallback: Boolean(env.IUMRAH_WEB) });
+      return json({ ok: true, service: "iumrah-telegram-bot", version: "1.7.3", apiOrigin: serverOrigin(env), directServer: true, packageBinding: Boolean(env.IUMRAH_PACKAGE_API), iumrahWebReadFallback: Boolean(env.IUMRAH_WEB) });
     }
     if (request.method === "GET" && /^\/status-image\/[a-z_]+\.webp$/.test(url.pathname)) {
       const key = url.pathname.split("/").pop()?.replace(/\.webp$/, "") || "";
       return serveStatusImage(key);
     }
-    if (request.method === "GET" && /^\/support-image\/[a-z_]+\.jpg$/.test(url.pathname)) {
-      const key = url.pathname.split("/").pop()?.replace(/\.jpg$/, "") || "";
+    if (request.method === "GET" && /^\/support-image\/[a-z_]+\.(jpg|png)$/.test(url.pathname)) {
+      const key = url.pathname.split("/").pop()?.replace(/\.(jpg|png)$/, "") || "";
       return serveSupportImage(key);
     }
     if (request.method === "GET" && /^\/mini-asset\/[a-z0-9-]+\.(png|jpeg|jpg|ttf)$/.test(url.pathname)) {
