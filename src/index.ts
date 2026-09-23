@@ -1,5 +1,6 @@
 import { STATUS_ASSETS } from './status-assets';
 import { MINI_ASSETS } from './mini-assets';
+import { SUPPORT_ASSETS } from './support-assets';
 import { bookingMiniV7HTML } from './mini-v7';
 type ScheduledController = { cron?: string; scheduledTime?: number; noRetry?: () => void };
 
@@ -11,7 +12,7 @@ type LocalizedStatusCopy = {
 };
 
 type TranslationSet = {
-  actions: { refresh: string; liveTimer: string; openIumrah: string; connectTelegram: string };
+  actions: { refresh: string; liveTimer: string; openIumrah: string; connectTelegram: string; callCare: string };
   generic: {
     booking: string;
     dates: string;
@@ -48,7 +49,7 @@ type TranslationSet = {
 
 const I18N: Record<Locale, TranslationSet> = {
   ru: {
-    actions: { refresh: "Обновить статус", liveTimer: "Живой таймер", openIumrah: "Открыть iumrah", connectTelegram: "Подключить Telegram" },
+    actions: { refresh: "Обновить статус", liveTimer: "Живой таймер", openIumrah: "Открыть iumrah", connectTelegram: "Подключить Telegram", callCare: "Позвонить iumrah Care" },
     generic: {
       booking: "Бронь", dates: "Даты", confirmation: "Подтверждение", stageExpired: "Срок этапа завершён", synced: "Статус синхронизирован с единой системой iumrah.",
       bookingNotLinkedTitle: "Бронь ещё не подключена", bookingNotLinkedBody: "Откройте свою бронь в iumrah и нажмите «Подключить Telegram». Ссылка действует 10 минут и связывает Telegram без пароля.",
@@ -72,7 +73,7 @@ const I18N: Record<Locale, TranslationSet> = {
     }
   },
   en: {
-    actions: { refresh: "Refresh status", liveTimer: "Live timer", openIumrah: "Open iumrah", connectTelegram: "Connect Telegram" },
+    actions: { refresh: "Refresh status", liveTimer: "Live timer", openIumrah: "Open iumrah", connectTelegram: "Connect Telegram", callCare: "Call iumrah Care" },
     generic: {
       booking: "Booking", dates: "Dates", confirmation: "Confirmation", stageExpired: "Stage time is over", synced: "Status is synced with the unified iumrah system.",
       bookingNotLinkedTitle: "No booking is linked yet", bookingNotLinkedBody: "Open your booking in iumrah and tap “Connect Telegram”. The link stays active for 10 minutes and links Telegram without a password.",
@@ -96,7 +97,7 @@ const I18N: Record<Locale, TranslationSet> = {
     }
   },
   uz: {
-    actions: { refresh: "Statusni yangilash", liveTimer: "Jonli taymer", openIumrah: "iumrah'ni ochish", connectTelegram: "Telegram'ni ulash" },
+    actions: { refresh: "Statusni yangilash", liveTimer: "Jonli taymer", openIumrah: "iumrah'ni ochish", connectTelegram: "Telegram'ni ulash", callCare: "iumrah Care’ga qo‘ng‘iroq" },
     generic: {
       booking: "Bron", dates: "Sanalar", confirmation: "Tasdiq", stageExpired: "Bosqich muddati tugadi", synced: "Status iumrah yagona tizimi bilan sinxronlangan.",
       bookingNotLinkedTitle: "Bron hali ulanmagan", bookingNotLinkedBody: "Broningizni iumrah ichida oching va “Telegram'ni ulash” tugmasini bosing. Havola 10 daqiqa amal qiladi va Telegram'ni parolsiz bog'laydi.",
@@ -120,7 +121,7 @@ const I18N: Record<Locale, TranslationSet> = {
     }
   },
   uz_cyrl: {
-    actions: { refresh: "Статусни янгилаш", liveTimer: "Жонли таймер", openIumrah: "iumrah'ни очиш", connectTelegram: "Telegram'ни улаш" },
+    actions: { refresh: "Статусни янгилаш", liveTimer: "Жонли таймер", openIumrah: "iumrah'ни очиш", connectTelegram: "Telegram'ни улаш", callCare: "iumrah Care’га қўнғироқ" },
     generic: {
       booking: "Брон", dates: "Саналар", confirmation: "Тасдиқ", stageExpired: "Босқич муддати тугади", synced: "Статус iumrah ягона тизими билан синхронланган.",
       bookingNotLinkedTitle: "Брон ҳали уланмаган", bookingNotLinkedBody: "Бронингизни iumrah ичида очинг ва “Telegram'ни улаш” тугмасини босинг. Ҳавола 10 дақиқа амал қилади ва Telegram'ни паролсиз боғлайди.",
@@ -187,8 +188,17 @@ type BotUXCopy = {
   openMini: string;
   status: string;
   support: string;
+  liveSupport: string;
   supportTitle: string;
   supportBody: string;
+  liveSupportTitle: string;
+  liveSupportBody: string;
+  liveSupportCallTitle: string;
+  liveSupportCallBody: string;
+  liveSupportWriteTitle: string;
+  liveSupportWriteBody: string;
+  liveSupportCallAction: string;
+  liveSupportWriteAction: string;
   menuReady: string;
   website: string;
 };
@@ -204,8 +214,17 @@ const BOT_UX: Record<Locale, BotUXCopy> = {
     openMini: "Открыть Mini App",
     status: "Статус брони",
     support: "iumrah Care",
+    liveSupport: "Живая поддержка",
     supportTitle: "iumrah Care",
     supportBody: "Поддержка по вашей поездке. Телефон: +998 50 889 88 45. Для управления поддержкой откройте Care в Mini App.",
+    liveSupportTitle: "Живая поддержка",
+    liveSupportBody: "Выберите, как вам удобнее связаться с iumrah по вашей брони.",
+    liveSupportCallTitle: "Звонок в поддержку",
+    liveSupportCallBody: "Нажмите кнопку ниже, и бот отправит вам контакт iumrah Care прямо в Telegram.",
+    liveSupportWriteTitle: "Написать в Telegram",
+    liveSupportWriteBody: "Если вам удобнее написать напрямую, откройте личный Telegram iumrah Care по кнопке ниже.",
+    liveSupportCallAction: "Позвонить",
+    liveSupportWriteAction: "Написать @saudiclub966",
     menuReady: "Меню готово. Mini App всегда доступно кнопкой ниже.",
     website: "Открыть iumrah.app",
   },
@@ -219,8 +238,17 @@ const BOT_UX: Record<Locale, BotUXCopy> = {
     openMini: "Open Mini App",
     status: "Booking status",
     support: "iumrah Care",
+    liveSupport: "Live support",
     supportTitle: "iumrah Care",
     supportBody: "Support for your trip. Phone: +998 50 889 88 45. Open Care in the Mini App for full support controls.",
+    liveSupportTitle: "Live support",
+    liveSupportBody: "Choose the easiest way to contact iumrah about your booking.",
+    liveSupportCallTitle: "Call support",
+    liveSupportCallBody: "Tap the button below and the bot will send the iumrah Care contact directly into Telegram.",
+    liveSupportWriteTitle: "Write in Telegram",
+    liveSupportWriteBody: "If you prefer to write directly, open the personal Telegram contact using the button below.",
+    liveSupportCallAction: "Call",
+    liveSupportWriteAction: "Write to @saudiclub966",
     menuReady: "Menu is ready. The Mini App is always available from the button below.",
     website: "Open iumrah.app",
   },
@@ -234,8 +262,17 @@ const BOT_UX: Record<Locale, BotUXCopy> = {
     openMini: "Mini App’ni ochish",
     status: "Bron holati",
     support: "iumrah Care",
+    liveSupport: "Jonli yordam",
     supportTitle: "iumrah Care",
     supportBody: "Safaringiz bo‘yicha yordam. Telefon: +998 50 889 88 45. To‘liq yordam boshqaruvi uchun Mini App ichidagi Care bo‘limini oching.",
+    liveSupportTitle: "Jonli yordam",
+    liveSupportBody: "Broningiz bo‘yicha iumrah bilan bog‘lanishning qulay usulini tanlang.",
+    liveSupportCallTitle: "Qo‘ng‘iroq qilish",
+    liveSupportCallBody: "Pastdagi tugmani bosing — bot iumrah Care kontaktini to‘g‘ridan-to‘g‘ri Telegram’ga yuboradi.",
+    liveSupportWriteTitle: "Telegram’da yozish",
+    liveSupportWriteBody: "Agar to‘g‘ridan-to‘g‘ri yozmoqchi bo‘lsangiz, pastdagi tugma orqali shaxsiy Telegram’ni oching.",
+    liveSupportCallAction: "Qo‘ng‘iroq qilish",
+    liveSupportWriteAction: "@saudiclub966 ga yozish",
     menuReady: "Menyu tayyor. Mini App pastdagi tugma orqali doim ochiladi.",
     website: "iumrah.app’ni ochish",
   },
@@ -249,8 +286,17 @@ const BOT_UX: Record<Locale, BotUXCopy> = {
     openMini: "Mini App’ни очиш",
     status: "Брон ҳолати",
     support: "iumrah Care",
+    liveSupport: "Жонли ёрдам",
     supportTitle: "iumrah Care",
     supportBody: "Сафарингиз бўйича ёрдам. Телефон: +998 50 889 88 45. Тўлиқ ёрдам бошқаруви учун Mini App ичидаги Care бўлимини очинг.",
+    liveSupportTitle: "Жонли ёрдам",
+    liveSupportBody: "Бронингиз бўйича iumrah билан боғланишнинг қулай усулини танланг.",
+    liveSupportCallTitle: "Қўнғироқ қилиш",
+    liveSupportCallBody: "Пастдаги тугмани босинг — бот iumrah Care контактини тўғридан‑тўғри Telegram’га юборади.",
+    liveSupportWriteTitle: "Telegram’да ёзиш",
+    liveSupportWriteBody: "Агар тўғридан‑тўғри ёзмоқчи бўлсангиз, пастдаги тугма орқали шахсий Telegram’ни очинг.",
+    liveSupportCallAction: "Қўнғироқ қилиш",
+    liveSupportWriteAction: "@saudiclub966 га ёзиш",
     menuReady: "Меню тайёр. Mini App пастдаги тугма орқали доим очилади.",
     website: "iumrah.app’ни очиш",
   },
@@ -323,6 +369,10 @@ type LinkedBookingRow = {
 const JSON_HEADERS = { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" };
 const LINK_TTL_SECONDS = 10 * 60;
 const MINI_INIT_MAX_AGE_SECONDS = 60 * 60;
+const TELEGRAM_CONNECT_URL = "https://iumrah.app/telegram#telegram-connect";
+const CARE_FALLBACK_PHONE = "+998508898845";
+const LIVE_SUPPORT_TELEGRAM_USERNAME = "saudiclub966";
+const LIVE_SUPPORT_TELEGRAM_URL = `https://t.me/${LIVE_SUPPORT_TELEGRAM_USERNAME}`;
 const encoder = new TextEncoder();
 
 function json(data: unknown, status = 200): Response {
@@ -545,6 +595,7 @@ function pinnedKeyboard(env: Env, locale: Locale, runtimeBaseURL?: string): Reco
     { text: copy.status, callback_data: "home:status" },
     { text: copy.support, callback_data: "home:support" },
   ]);
+  rows.push([{ text: copy.liveSupport, callback_data: "home:live_support" }]);
   return { inline_keyboard: rows };
 }
 
@@ -554,6 +605,7 @@ function persistentReplyKeyboard(env: Env, locale: Locale, runtimeBaseURL?: stri
   const rows: Record<string, unknown>[][] = [];
   if (base) rows.push([{ text: copy.openMini, web_app: { url: `${base}/mini` } }]);
   rows.push([{ text: copy.status }, { text: copy.support }]);
+  rows.push([{ text: copy.liveSupport }]);
   return { keyboard: rows, resize_keyboard: true, is_persistent: true, input_field_placeholder: "iumrah" };
 }
 
@@ -615,12 +667,63 @@ async function sendSupportHome(env: Env, chatID: number, locale: Locale, runtime
   const base = miniBaseURL(env, runtimeBaseURL);
   const rows: Record<string, unknown>[][] = [];
   if (base) rows.push([{ text: copy.support, web_app: { url: `${base}/mini?tab=care` } }]);
+  rows.push([{ text: copy.liveSupport, callback_data: "home:live_support" }]);
   rows.push([{ text: copy.website, url: "https://iumrah.app" }]);
   await sendMessage(
     env,
     chatID,
     `<b>${escapeHtml(copy.supportTitle)}</b>\n\n${escapeHtml(copy.supportBody)}`,
     { inline_keyboard: rows },
+  );
+}
+
+async function sendLiveSupportHome(env: Env, chatID: number, locale: Locale, runtimeBaseURL?: string): Promise<void> {
+  const copy = botUX(locale);
+  const base = runtimeBaseURL || env.PUBLIC_BASE_URL;
+  const callPhoto = supportImageURL(base, 'call');
+  const writePhoto = supportImageURL(base, 'telegram');
+
+  if (callPhoto) {
+    await sendPhotoMessage(
+      env,
+      chatID,
+      callPhoto,
+      `<b>${escapeHtml(copy.liveSupportCallTitle)}</b>
+
+${escapeHtml(copy.liveSupportCallBody)}`,
+      { inline_keyboard: [[{ text: copy.liveSupportCallAction, callback_data: 'live_support:call' }]] },
+    );
+  } else {
+    await sendMessage(
+      env,
+      chatID,
+      `<b>${escapeHtml(copy.liveSupportCallTitle)}</b>
+
+${escapeHtml(copy.liveSupportCallBody)}`,
+      { inline_keyboard: [[{ text: copy.liveSupportCallAction, callback_data: 'live_support:call' }]] },
+    );
+  }
+
+  if (writePhoto) {
+    await sendPhotoMessage(
+      env,
+      chatID,
+      writePhoto,
+      `<b>${escapeHtml(copy.liveSupportWriteTitle)}</b>
+
+${escapeHtml(copy.liveSupportWriteBody)}`,
+      { inline_keyboard: [[{ text: copy.liveSupportWriteAction, url: LIVE_SUPPORT_TELEGRAM_URL }]] },
+    );
+    return;
+  }
+
+  await sendMessage(
+    env,
+    chatID,
+    `<b>${escapeHtml(copy.liveSupportWriteTitle)}</b>
+
+${escapeHtml(copy.liveSupportWriteBody)}`,
+    { inline_keyboard: [[{ text: copy.liveSupportWriteAction, url: LIVE_SUPPORT_TELEGRAM_URL }]] },
   );
 }
 
@@ -869,6 +972,17 @@ function lifecycleTitle(locale: Locale, kind: Lifecycle["kind"]): string {
   }
 }
 
+function bookingRecoveryKeyboard(bookingID: string, locale: Locale): Record<string, unknown> {
+  const actions = textFor(locale).actions;
+  return {
+    inline_keyboard: [
+      [{ text: actions.connectTelegram, url: TELEGRAM_CONNECT_URL }],
+      [{ text: actions.callCare, callback_data: `care_call:${bookingID}` }],
+      [{ text: botUX(locale).liveSupport, callback_data: "home:live_support" }],
+    ],
+  };
+}
+
 function bookingKeyboard(env: Env, bookingID: string, locale: Locale, runtimeBaseURL?: string): Record<string, unknown> {
   const statusStrings = textFor(locale).actions;
   const ux = botUX(locale);
@@ -883,6 +997,7 @@ function bookingKeyboard(env: Env, bookingID: string, locale: Locale, runtimeBas
   } else {
     rows.push([{ text: statusStrings.refresh, callback_data: `refresh:${bookingID}` }]);
   }
+  rows.push([{ text: ux.liveSupport, callback_data: "home:live_support" }]);
   rows.push([{ text: ux.website, url: "https://iumrah.app/account" }]);
   return { inline_keyboard: rows };
 }
@@ -916,6 +1031,12 @@ function statusImageURL(baseURL: string | undefined, payload: ClientTripResponse
   return `${base}/status-image/${statusImageKey(payload.trip.status)}.webp`;
 }
 
+function supportImageURL(baseURL: string | undefined, key: string): string | null {
+  const base = clean(baseURL, 512).replace(/\/+$/, "");
+  if (!base) return null;
+  return `${base}/support-image/${key}.jpg`;
+}
+
 function decodeBase64(value: string): Uint8Array {
   const binary = atob(value);
   const bytes = new Uint8Array(binary.length);
@@ -925,6 +1046,17 @@ function decodeBase64(value: string): Uint8Array {
 
 function serveStatusImage(key: string): Response {
   const asset = STATUS_ASSETS[key as keyof typeof STATUS_ASSETS];
+  if (!asset) return new Response('Not found', { status: 404 });
+  return new Response(decodeBase64(asset.data), {
+    headers: {
+      'content-type': asset.contentType,
+      'cache-control': 'public, max-age=31536000, immutable',
+    },
+  });
+}
+
+function serveSupportImage(key: string): Response {
+  const asset = SUPPORT_ASSETS[key as keyof typeof SUPPORT_ASSETS];
   if (!asset) return new Response('Not found', { status: 404 });
   return new Response(decodeBase64(asset.data), {
     headers: {
@@ -1079,11 +1211,17 @@ ${escapeHtml(strings.generic.bookingNotLinkedBody)}`,
       const token = await decryptSecret(env, row.booking_token_ciphertext, row.booking_token_iv);
       const payload = await fetchTrip(env, row.booking_id, token);
       await sendStatusCard(env, chatId, payload, rowLocale, runtimeBaseURL);
-    } catch {
-      await sendMessage(env, chatId, `<b>${escapeHtml(rowStrings.generic.updateFailedTitle)}</b>
+    } catch (error) {
+      console.error("booking sync failed", row.booking_id, error instanceof Error ? error.message : String(error));
+      await sendMessage(
+        env,
+        chatId,
+        `<b>${escapeHtml(rowStrings.generic.updateFailedTitle)}</b>
 
 <code>${escapeHtml(row.booking_id)}</code>
-${escapeHtml(rowStrings.generic.reconnectPrompt)}`);
+${escapeHtml(rowStrings.generic.reconnectPrompt)}`,
+        bookingRecoveryKeyboard(row.booking_id, rowLocale),
+      );
     }
   }
 }
@@ -1108,8 +1246,18 @@ async function refreshBooking(env: Env, callback: TelegramCallbackQuery, booking
        WHERE telegram_user_id=?5 AND booking_id=?6`,
     ).bind(payload.trip.status, payload.trip.paymentStatus ?? null, payload.trip.confirmationNumber ?? null, new Date().toISOString(), callback.from.id, bookingID).run();
     await answerCallback(env, callback.id, strings.generic.callbackUpdated);
-  } catch {
+  } catch (error) {
+    console.error("booking refresh failed", bookingID, error instanceof Error ? error.message : String(error));
     await answerCallback(env, callback.id, strings.generic.callbackRefreshFailed);
+    await sendMessage(
+      env,
+      message.chat.id,
+      `<b>${escapeHtml(strings.generic.updateFailedTitle)}</b>
+
+<code>${escapeHtml(bookingID)}</code>
+${escapeHtml(strings.generic.reconnectPrompt)}`,
+      bookingRecoveryKeyboard(bookingID, locale),
+    );
   }
 }
 
@@ -1145,6 +1293,44 @@ async function handleCallback(env: Env, callback: TelegramCallbackQuery, runtime
     await sendSupportHome(env, chatID, locale, runtimeBaseURL);
     return;
   }
+  if (data === "home:live_support") {
+    if (!chatID) return;
+    const pref = await getUserPreference(env, callback.from.id);
+    const locale = normalizeLocale(pref?.language || callback.from.language_code || "ru");
+    await answerCallback(env, callback.id);
+    await sendLiveSupportHome(env, chatID, locale, runtimeBaseURL);
+    return;
+  }
+  if (data === "live_support:call") {
+    if (!chatID) return;
+    const pref = await getUserPreference(env, callback.from.id);
+    const locale = normalizeLocale(pref?.language || callback.from.language_code || "ru");
+    try {
+      await sendCareContactCard(env, chatID);
+      await answerCallback(env, callback.id);
+    } catch (error) {
+      console.error("live support call callback failed", error);
+      await answerCallback(env, callback.id, textFor(locale).generic.callbackRefreshFailed);
+    }
+    return;
+  }
+  if (data.startsWith("care_call:")) {
+    if (!chatID) return;
+    const bookingID = data.slice("care_call:".length);
+    const row = await env.DB.prepare(
+      `SELECT telegram_user_id, chat_id, booking_id, booking_token_ciphertext, booking_token_iv, language,
+              last_status, last_payment_status, last_confirmation_number, notifications_enabled
+       FROM telegram_bookings WHERE telegram_user_id=?1 AND booking_id=?2 LIMIT 1`,
+    ).bind(callback.from.id, bookingID).first<LinkedBookingRow>();
+    try {
+      await sendCareContactCard(env, chatID, row ?? undefined);
+      await answerCallback(env, callback.id);
+    } catch (error) {
+      console.error("care contact callback failed", bookingID, error);
+      await answerCallback(env, callback.id, textFor(normalizeLocale(row?.language || callback.from.language_code || "ru")).generic.callbackRefreshFailed);
+    }
+    return;
+  }
   if (data.startsWith("refresh:")) {
     await refreshBooking(env, callback, data.slice("refresh:".length), runtimeBaseURL);
     return;
@@ -1165,7 +1351,12 @@ async function handleMessage(env: Env, message: TelegramMessage, runtimeBaseURL?
     if (parameter.startsWith('link_')) {
       const ok = await claimLinkToken(env, message, message.from, parameter.slice(5), runtimeBaseURL);
       if (!ok) {
-        await sendMessage(env, message.chat.id, `<b>${escapeHtml(strings.generic.linkExpiredTitle)}</b>\n\n${escapeHtml(strings.generic.linkExpiredBody)}`);
+        await sendMessage(
+          env,
+          message.chat.id,
+          `<b>${escapeHtml(strings.generic.linkExpiredTitle)}</b>\n\n${escapeHtml(strings.generic.linkExpiredBody)}`,
+          { inline_keyboard: [[{ text: strings.actions.connectTelegram, url: TELEGRAM_CONNECT_URL }]] },
+        );
       }
       return;
     }
@@ -1182,6 +1373,10 @@ async function handleMessage(env: Env, message: TelegramMessage, runtimeBaseURL?
   }
   if (text === ux.support || Object.values(BOT_UX).some(v => v.support === text)) {
     await sendSupportHome(env, message.chat.id, savedLocale, runtimeBaseURL);
+    return;
+  }
+  if (text === ux.liveSupport || Object.values(BOT_UX).some(v => v.liveSupport === text)) {
+    await sendLiveSupportHome(env, message.chat.id, savedLocale, runtimeBaseURL);
     return;
   }
   if (/^\/help(?:@\w+)?$/i.test(text)) {
@@ -1563,29 +1758,39 @@ async function miniAction(request: Request, env: Env): Promise<Response> {
   return json({ ok: true, result: result.body });
 }
 
+async function sendCareContactCard(env: Env, chatID: number, row?: LinkedBookingRow): Promise<string> {
+  let phone = CARE_FALLBACK_PHONE;
+  if (row) {
+    try {
+      const token = await decryptSecret(env, row.booking_token_ciphertext, row.booking_token_iv);
+      const team = await fetchServerJSON(env, "/api/catalog/hotels/team", token);
+      const members = Array.isArray(team.body?.members) ? team.body.members : [];
+      const care = members.find((member: any) => member?.isOwner === true) || members[0] || null;
+      const candidate = clean(care?.phoneUZ || care?.phone || "", 64).replace(/[^0-9+]/g, "");
+      if (candidate.length >= 7) phone = candidate;
+    } catch (error) {
+      console.error("care phone lookup failed; using fallback", row.booking_id, error);
+    }
+  }
+
+  await telegramCall(env, "sendContact", {
+    chat_id: chatID,
+    phone_number: phone,
+    first_name: "iumrah Care",
+  });
+  return phone;
+}
+
 async function miniCareCall(request: Request, env: Env): Promise<Response> {
   const context = await miniHotelContext(request, env);
   if (context instanceof Response) return context;
 
-  let phone = "+998508898845";
   try {
-    const team = await fetchServerJSON(env, "/api/catalog/hotels/team", context.token);
-    const members = Array.isArray(team.body?.members) ? team.body.members : [];
-    const care = members.find((member: any) => member?.isOwner === true) || members[0] || null;
-    const candidate = clean(care?.phoneUZ || care?.phone || "", 64).replace(/[^0-9+]/g, "");
-    if (candidate.length >= 7) phone = candidate;
-  } catch { /* use the production Care fallback number */ }
-
-  try {
-    await telegramCall(env, "sendContact", {
-      chat_id: context.row.chat_id,
-      phone_number: phone,
-      first_name: "iumrah Care",
-    });
+    const phone = await sendCareContactCard(env, context.row.chat_id, context.row);
     return json({ ok: true, phone, deliveredToTelegram: true });
   } catch (error) {
     console.error("care contact delivery failed", error);
-    return json({ error: "CARE_CALL_CONTACT_FAILED", phone }, 502);
+    return json({ error: "CARE_CALL_CONTACT_FAILED", phone: CARE_FALLBACK_PHONE }, 502);
   }
 }
 
@@ -1710,11 +1915,15 @@ export default {
     } catch { /* The health endpoint can still respond before a first migration in local development. */ }
 
     if (request.method === "GET" && url.pathname === "/health") {
-      return json({ ok: true, service: "iumrah-telegram-bot", version: "1.7.0", apiOrigin: serverOrigin(env), directServer: true, packageBinding: Boolean(env.IUMRAH_PACKAGE_API), iumrahWebReadFallback: Boolean(env.IUMRAH_WEB) });
+      return json({ ok: true, service: "iumrah-telegram-bot", version: "1.7.2", apiOrigin: serverOrigin(env), directServer: true, packageBinding: Boolean(env.IUMRAH_PACKAGE_API), iumrahWebReadFallback: Boolean(env.IUMRAH_WEB) });
     }
     if (request.method === "GET" && /^\/status-image\/[a-z_]+\.webp$/.test(url.pathname)) {
       const key = url.pathname.split("/").pop()?.replace(/\.webp$/, "") || "";
       return serveStatusImage(key);
+    }
+    if (request.method === "GET" && /^\/support-image\/[a-z_]+\.jpg$/.test(url.pathname)) {
+      const key = url.pathname.split("/").pop()?.replace(/\.jpg$/, "") || "";
+      return serveSupportImage(key);
     }
     if (request.method === "GET" && /^\/mini-asset\/[a-z0-9-]+\.(png|jpeg|jpg|ttf)$/.test(url.pathname)) {
       const filename = url.pathname.split("/").pop() || "";
