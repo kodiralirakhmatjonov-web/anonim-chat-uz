@@ -518,6 +518,39 @@ async function sendPhotoMessage(env: Env, chatId: number, photo: string, caption
   });
 }
 
+type EmbeddedImageAsset = { contentType: string; data: string };
+
+function telegramPhotoFilename(contentType: string): string {
+  if (contentType.includes('png')) return 'iumrah.png';
+  if (contentType.includes('webp')) return 'iumrah.webp';
+  return 'iumrah.jpg';
+}
+
+async function sendEmbeddedPhotoMessage(
+  env: Env,
+  chatId: number,
+  asset: EmbeddedImageAsset,
+  caption: string,
+  replyMarkup?: Record<string, unknown>,
+): Promise<TelegramMessage> {
+  const bytes = decodeBase64(asset.data);
+  const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+  const form = new FormData();
+  form.append('chat_id', String(chatId));
+  form.append('photo', new Blob([buffer], { type: asset.contentType }), telegramPhotoFilename(asset.contentType));
+  form.append('caption', caption);
+  form.append('parse_mode', 'HTML');
+  form.append('protect_content', 'true');
+  if (replyMarkup) form.append('reply_markup', JSON.stringify(replyMarkup));
+
+  const response = await fetch(telegramApi(env, 'sendPhoto'), { method: 'POST', body: form });
+  const body = (await response.json()) as { ok?: boolean; result?: TelegramMessage; description?: string };
+  if (!response.ok || body.ok !== true || !body.result) {
+    throw new Error(`Telegram sendPhoto failed: ${body.description ?? response.statusText}`);
+  }
+  return body.result;
+}
+
 async function answerCallback(env: Env, callbackId: string, text?: string): Promise<void> {
   await telegramCall(env, "answerCallbackQuery", { callback_query_id: callbackId, ...(text ? { text } : {}) });
 }
@@ -679,47 +712,23 @@ async function sendSupportHome(env: Env, chatID: number, locale: Locale, runtime
 
 async function sendLiveSupportHome(env: Env, chatID: number, locale: Locale, runtimeBaseURL?: string): Promise<void> {
   const copy = botUX(locale);
-  const base = runtimeBaseURL || env.PUBLIC_BASE_URL;
-  const callPhoto = supportImageURL(base, 'call');
-  const writePhoto = supportImageURL(base, 'telegram');
+  const callAsset = SUPPORT_ASSETS.call;
+  const writeAsset = SUPPORT_ASSETS.telegram;
 
-  if (callPhoto) {
-    await sendPhotoMessage(
-      env,
-      chatID,
-      callPhoto,
-      `<b>${escapeHtml(copy.liveSupportCallTitle)}</b>
-
-${escapeHtml(copy.liveSupportCallBody)}`,
-      { inline_keyboard: [[{ text: copy.liveSupportCallAction, callback_data: 'live_support:call' }]] },
-    );
-  } else {
-    await sendMessage(
-      env,
-      chatID,
-      `<b>${escapeHtml(copy.liveSupportCallTitle)}</b>
-
-${escapeHtml(copy.liveSupportCallBody)}`,
-      { inline_keyboard: [[{ text: copy.liveSupportCallAction, callback_data: 'live_support:call' }]] },
-    );
-  }
-
-  if (writePhoto) {
-    await sendPhotoMessage(
-      env,
-      chatID,
-      writePhoto,
-      `<b>${escapeHtml(copy.liveSupportWriteTitle)}</b>
-
-${escapeHtml(copy.liveSupportWriteBody)}`,
-      { inline_keyboard: [[{ text: copy.liveSupportWriteAction, url: LIVE_SUPPORT_TELEGRAM_URL }]] },
-    );
-    return;
-  }
-
-  await sendMessage(
+  await sendEmbeddedPhotoMessage(
     env,
     chatID,
+    callAsset,
+    `<b>${escapeHtml(copy.liveSupportCallTitle)}</b>
+
+${escapeHtml(copy.liveSupportCallBody)}`,
+    { inline_keyboard: [[{ text: copy.liveSupportCallAction, callback_data: 'live_support:call' }]] },
+  );
+
+  await sendEmbeddedPhotoMessage(
+    env,
+    chatID,
+    writeAsset,
     `<b>${escapeHtml(copy.liveSupportWriteTitle)}</b>
 
 ${escapeHtml(copy.liveSupportWriteBody)}`,
@@ -817,10 +826,11 @@ async function fetchTrip(env: Env, bookingID: string, bookingToken: string): Pro
       const payload = parseTripPayload(await response.json());
       if (payload && payload.trip.bookingID === bookingID) return payload;
     }
-    if (response.status === 404 || response.status === 401) throw new Error("BOOKING_NOT_FOUND");
+    if (response.status === 404) throw new Error("BOOKING_NOT_FOUND");
+    if (response.status === 401 || response.status === 403) throw new Error("BOOKING_AUTH_INVALID");
     console.error("direct operational trip lookup failed", bookingID, response.status);
   } catch (error) {
-    if (error instanceof Error && error.message === "BOOKING_NOT_FOUND") throw error;
+    if (error instanceof Error && (error.message === "BOOKING_NOT_FOUND" || error.message === "BOOKING_AUTH_INVALID")) throw error;
     console.error("direct operational trip request failed", bookingID, error);
   }
 
@@ -832,7 +842,8 @@ async function fetchTrip(env: Env, bookingID: string, bookingToken: string): Pro
     if (payload && payload.trip.bookingID === bookingID) return payload;
     throw new Error("INVALID_BOOKING_RESPONSE");
   }
-  if (fallback.status === 404 || fallback.status === 401) throw new Error("BOOKING_NOT_FOUND");
+  if (fallback.status === 404) throw new Error("BOOKING_NOT_FOUND");
+  if (fallback.status === 401 || fallback.status === 403) throw new Error("BOOKING_AUTH_INVALID");
   throw new Error(`IUMRAH_API_${fallback.status}`);
 }
 
@@ -1077,22 +1088,13 @@ async function sendBookingRecoveryMessage(env: Env, chatId: number, bookingID: s
 
 <code>${escapeHtml(bookingID)}</code>
 ${escapeHtml(strings.generic.reconnectPrompt)}`;
-  const photo = recoveryImageURL(runtimeBaseURL || env.PUBLIC_BASE_URL);
-  if (photo) {
-    await sendPhotoMessage(env, chatId, photo, caption, bookingRecoveryKeyboard(bookingID, locale));
-    return;
-  }
-  await sendMessage(env, chatId, caption, bookingRecoveryKeyboard(bookingID, locale));
+  await sendEmbeddedPhotoMessage(env, chatId, SUPPORT_ASSETS.sync_error, caption, bookingRecoveryKeyboard(bookingID, locale));
 }
 
 async function sendStatusCard(env: Env, chatId: number, payload: ClientTripResponse, locale: Locale, runtimeBaseURL?: string): Promise<void> {
   const caption = bookingMessage(env, payload, locale);
-  const photo = statusImageURL(runtimeBaseURL || env.PUBLIC_BASE_URL, payload);
-  if (photo) {
-    await sendPhotoMessage(env, chatId, photo, caption, bookingKeyboard(env, payload.trip.bookingID, locale, runtimeBaseURL));
-    return;
-  }
-  await sendMessage(env, chatId, caption, bookingKeyboard(env, payload.trip.bookingID, locale, runtimeBaseURL));
+  const asset = STATUS_ASSETS[statusImageKey(payload.trip.status)];
+  await sendEmbeddedPhotoMessage(env, chatId, asset, caption, bookingKeyboard(env, payload.trip.bookingID, locale, runtimeBaseURL));
 }
 
 function requireBridge(request: Request, env: Env): boolean {
@@ -1208,6 +1210,16 @@ async function linkedRowsForUser(env: Env, userID: number): Promise<LinkedBookin
   return result.results ?? [];
 }
 
+function isDetachedBookingError(error: unknown): boolean {
+  return error instanceof Error && (error.message === 'BOOKING_NOT_FOUND' || error.message === 'BOOKING_AUTH_INVALID');
+}
+
+async function deleteTelegramBookingBinding(env: Env, userID: number, bookingID: string): Promise<void> {
+  await env.DB.prepare(
+    'DELETE FROM telegram_bookings WHERE telegram_user_id=?1 AND booking_id=?2',
+  ).bind(userID, bookingID).run();
+}
+
 async function showBookings(env: Env, chatId: number, userID: number, runtimeBaseURL?: string, preferredLocale?: Locale): Promise<void> {
   const rows = await linkedRowsForUser(env, userID);
   const locale = preferredLocale ?? normalizeLocale(rows[0]?.language || 'ru');
@@ -1223,18 +1235,48 @@ ${escapeHtml(strings.generic.bookingNotLinkedBody)}`,
     );
     return;
   }
-  for (const row of rows.slice(0, 3)) {
+
+  let successCount = 0;
+  let firstFailure: { bookingID: string; locale: Locale } | null = null;
+  let firstDetached: { bookingID: string; locale: Locale } | null = null;
+
+  for (const row of rows.slice(0, 10)) {
     const rowLocale = preferredLocale ?? normalizeLocale(row.language || locale);
-    const rowStrings = textFor(rowLocale);
     try {
       const token = await decryptSecret(env, row.booking_token_ciphertext, row.booking_token_iv);
       const payload = await fetchTrip(env, row.booking_id, token);
       await sendStatusCard(env, chatId, payload, rowLocale, runtimeBaseURL);
+      successCount += 1;
     } catch (error) {
-      console.error("booking sync failed", row.booking_id, error instanceof Error ? error.message : String(error));
-      await sendBookingRecoveryMessage(env, chatId, row.booking_id, rowLocale, runtimeBaseURL);
+      const reason = error instanceof Error ? error.message : String(error);
+      console.error('booking sync failed', row.booking_id, reason);
+      if (isDetachedBookingError(error)) {
+        if (!firstDetached) firstDetached = { bookingID: row.booking_id, locale: rowLocale };
+        await deleteTelegramBookingBinding(env, userID, row.booking_id);
+        console.log('removed stale telegram booking binding', row.booking_id, reason);
+        continue;
+      }
+      if (!firstFailure) firstFailure = { bookingID: row.booking_id, locale: rowLocale };
     }
   }
+
+  // Never mix a valid live status card with stale/error cards from old bindings.
+  if (successCount > 0) return;
+
+  const failure = firstFailure ?? firstDetached;
+  if (failure) {
+    await sendBookingRecoveryMessage(env, chatId, failure.bookingID, failure.locale, runtimeBaseURL);
+    return;
+  }
+
+  await sendMessage(
+    env,
+    chatId,
+    `<b>${escapeHtml(strings.generic.bookingNotLinkedTitle)}</b>
+
+${escapeHtml(strings.generic.bookingNotLinkedBody)}`,
+    persistentReplyKeyboard(env, locale, runtimeBaseURL),
+  );
 }
 
 async function refreshBooking(env: Env, callback: TelegramCallbackQuery, bookingID: string, runtimeBaseURL?: string): Promise<void> {
@@ -1258,7 +1300,12 @@ async function refreshBooking(env: Env, callback: TelegramCallbackQuery, booking
     ).bind(payload.trip.status, payload.trip.paymentStatus ?? null, payload.trip.confirmationNumber ?? null, new Date().toISOString(), callback.from.id, bookingID).run();
     await answerCallback(env, callback.id, strings.generic.callbackUpdated);
   } catch (error) {
-    console.error("booking refresh failed", bookingID, error instanceof Error ? error.message : String(error));
+    const reason = error instanceof Error ? error.message : String(error);
+    console.error("booking refresh failed", bookingID, reason);
+    if (isDetachedBookingError(error)) {
+      await deleteTelegramBookingBinding(env, callback.from.id, bookingID);
+      console.log('removed stale telegram booking binding after refresh', bookingID, reason);
+    }
     await answerCallback(env, callback.id, strings.generic.callbackRefreshFailed);
     await sendBookingRecoveryMessage(env, message.chat.id, bookingID, locale, runtimeBaseURL);
   }
@@ -1436,7 +1483,16 @@ async function reconcileAll(env: Env): Promise<void> {
      FROM telegram_bookings WHERE notifications_enabled=1 ORDER BY updated_at ASC LIMIT 100`,
   ).all<LinkedBookingRow>();
   for (const row of result.results ?? []) {
-    try { await reconcileRow(env, row, false, runtimeBaseURL); } catch (error) { console.error("reconcile failed", row.booking_id, error); }
+    try {
+      await reconcileRow(env, row, false, runtimeBaseURL);
+    } catch (error) {
+      if (isDetachedBookingError(error)) {
+        await deleteTelegramBookingBinding(env, row.telegram_user_id, row.booking_id);
+        console.log('removed stale telegram booking binding during reconcile', row.booking_id);
+      } else {
+        console.error("reconcile failed", row.booking_id, error);
+      }
+    }
   }
 }
 
@@ -1453,7 +1509,17 @@ async function bookingEvent(request: Request, env: Env): Promise<Response> {
   ).bind(bookingID).all<LinkedBookingRow>();
   let sent = 0;
   for (const row of result.results ?? []) {
-    try { await reconcileRow(env, row, false, new URL(request.url).origin); sent += 1; } catch (error) { console.error("booking event failed", bookingID, error); }
+    try {
+      await reconcileRow(env, row, false, new URL(request.url).origin);
+      sent += 1;
+    } catch (error) {
+      if (isDetachedBookingError(error)) {
+        await deleteTelegramBookingBinding(env, row.telegram_user_id, row.booking_id);
+        console.log('removed stale telegram booking binding during booking event', row.booking_id);
+      } else {
+        console.error("booking event failed", bookingID, error);
+      }
+    }
   }
   return json({ ok: true, bookingID, sent });
 }
@@ -1918,7 +1984,7 @@ export default {
     } catch { /* The health endpoint can still respond before a first migration in local development. */ }
 
     if (request.method === "GET" && url.pathname === "/health") {
-      return json({ ok: true, service: "iumrah-telegram-bot", version: "1.7.3", apiOrigin: serverOrigin(env), directServer: true, packageBinding: Boolean(env.IUMRAH_PACKAGE_API), iumrahWebReadFallback: Boolean(env.IUMRAH_WEB) });
+      return json({ ok: true, service: "iumrah-telegram-bot", version: "1.7.4", apiOrigin: serverOrigin(env), directServer: true, packageBinding: Boolean(env.IUMRAH_PACKAGE_API), iumrahWebReadFallback: Boolean(env.IUMRAH_WEB) });
     }
     if (request.method === "GET" && /^\/status-image\/[a-z_]+\.webp$/.test(url.pathname)) {
       const key = url.pathname.split("/").pop()?.replace(/\.webp$/, "") || "";
