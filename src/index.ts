@@ -347,6 +347,11 @@ type ClientTripSnapshot = {
 
 type StatusHistoryEntry = { oldStatus?: string | null; newStatus: string; createdAt: string };
 type ClientTripResponse = { ok?: boolean; trip: ClientTripSnapshot; statusHistory?: StatusHistoryEntry[] | null };
+
+
+function tripNotificationFingerprint(trip: ClientTripSnapshot): string {
+  return [trip.bookingID, trip.status, trip.paymentStatus ?? '', trip.confirmationNumber ?? ''].join('|');
+}
 type Lifecycle = {
   kind: "availability" | "price_lock" | "payment_confirmation" | "documents" | "none";
   deadlineAt: string | null;
@@ -572,6 +577,45 @@ async function ensureBotUXSchema(env: Env): Promise<void> {
       updated_at TEXT NOT NULL
     )`,
   ).run();
+}
+
+
+async function ensureNotificationDedupSchema(env: Env): Promise<void> {
+  await env.DB.prepare(
+    `CREATE TABLE IF NOT EXISTS telegram_notification_dedup (
+      telegram_user_id INTEGER NOT NULL,
+      booking_id TEXT NOT NULL,
+      fingerprint TEXT NOT NULL,
+      sent_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (telegram_user_id, booking_id)
+    )`,
+  ).run();
+}
+
+async function getLastNotificationFingerprint(env: Env, telegramUserID: number, bookingID: string): Promise<string | null> {
+  await ensureNotificationDedupSchema(env);
+  const row = await env.DB.prepare(
+    `SELECT fingerprint FROM telegram_notification_dedup WHERE telegram_user_id=?1 AND booking_id=?2 LIMIT 1`,
+  ).bind(telegramUserID, bookingID).first<{ fingerprint: string }>();
+  return row?.fingerprint ?? null;
+}
+
+async function recordNotificationFingerprint(env: Env, telegramUserID: number, bookingID: string, fingerprint: string): Promise<void> {
+  await ensureNotificationDedupSchema(env);
+  const now = new Date().toISOString();
+  await env.DB.prepare(
+    `INSERT INTO telegram_notification_dedup(telegram_user_id, booking_id, fingerprint, sent_at, updated_at)
+     VALUES (?1, ?2, ?3, ?4, ?4)
+     ON CONFLICT(telegram_user_id, booking_id) DO UPDATE SET fingerprint=excluded.fingerprint, sent_at=excluded.sent_at, updated_at=excluded.updated_at`,
+  ).bind(telegramUserID, bookingID, fingerprint, now).run();
+}
+
+async function clearNotificationFingerprint(env: Env, telegramUserID: number, bookingID: string): Promise<void> {
+  await ensureNotificationDedupSchema(env);
+  await env.DB.prepare(
+    `DELETE FROM telegram_notification_dedup WHERE telegram_user_id=?1 AND booking_id=?2`,
+  ).bind(telegramUserID, bookingID).run();
 }
 
 async function getUserPreference(env: Env, telegramUserID: number): Promise<TelegramUserPreferenceRow | null> {
@@ -1218,6 +1262,7 @@ async function deleteTelegramBookingBinding(env: Env, userID: number, bookingID:
   await env.DB.prepare(
     'DELETE FROM telegram_bookings WHERE telegram_user_id=?1 AND booking_id=?2',
   ).bind(userID, bookingID).run();
+  await clearNotificationFingerprint(env, userID, bookingID);
 }
 
 async function showBookings(env: Env, chatId: number, userID: number, runtimeBaseURL?: string, preferredLocale?: Locale): Promise<void> {
@@ -1246,6 +1291,7 @@ ${escapeHtml(strings.generic.bookingNotLinkedBody)}`,
       const token = await decryptSecret(env, row.booking_token_ciphertext, row.booking_token_iv);
       const payload = await fetchTrip(env, row.booking_id, token);
       await sendStatusCard(env, chatId, payload, rowLocale, runtimeBaseURL);
+      await recordNotificationFingerprint(env, row.telegram_user_id, row.booking_id, tripNotificationFingerprint(payload.trip));
       successCount += 1;
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
@@ -1294,6 +1340,7 @@ async function refreshBooking(env: Env, callback: TelegramCallbackQuery, booking
     const token = await decryptSecret(env, row.booking_token_ciphertext, row.booking_token_iv);
     const payload = await fetchTrip(env, bookingID, token);
     await sendStatusCard(env, message.chat.id, payload, locale, runtimeBaseURL);
+    await recordNotificationFingerprint(env, callback.from.id, bookingID, tripNotificationFingerprint(payload.trip));
     await env.DB.prepare(
       `UPDATE telegram_bookings SET last_status=?1,last_payment_status=?2,last_confirmation_number=?3,updated_at=?4
        WHERE telegram_user_id=?5 AND booking_id=?6`,
@@ -1457,8 +1504,11 @@ async function reconcileRow(env: Env, row: LinkedBookingRow, force = false, runt
   const token = await decryptSecret(env, row.booking_token_ciphertext, row.booking_token_iv);
   const payload = await fetchTrip(env, row.booking_id, token);
   const locale = normalizeLocale(row.language || 'ru');
-  if (force || changed(row, payload.trip)) {
+  const fingerprint = tripNotificationFingerprint(payload.trip);
+  const lastNotifiedFingerprint = await getLastNotificationFingerprint(env, row.telegram_user_id, row.booking_id);
+  if (force || (changed(row, payload.trip) && lastNotifiedFingerprint !== fingerprint)) {
     await sendStatusCard(env, row.chat_id, payload, locale, runtimeBaseURL);
+    await recordNotificationFingerprint(env, row.telegram_user_id, row.booking_id, fingerprint);
   }
   await env.DB.prepare(
     `UPDATE telegram_bookings SET last_status=?1,last_payment_status=?2,last_confirmation_number=?3,updated_at=?4
@@ -1984,7 +2034,7 @@ export default {
     } catch { /* The health endpoint can still respond before a first migration in local development. */ }
 
     if (request.method === "GET" && url.pathname === "/health") {
-      return json({ ok: true, service: "iumrah-telegram-bot", version: "1.7.4", apiOrigin: serverOrigin(env), directServer: true, packageBinding: Boolean(env.IUMRAH_PACKAGE_API), iumrahWebReadFallback: Boolean(env.IUMRAH_WEB) });
+      return json({ ok: true, service: "iumrah-telegram-bot", version: "1.7.5", apiOrigin: serverOrigin(env), directServer: true, packageBinding: Boolean(env.IUMRAH_PACKAGE_API), iumrahWebReadFallback: Boolean(env.IUMRAH_WEB) });
     }
     if (request.method === "GET" && /^\/status-image\/[a-z_]+\.webp$/.test(url.pathname)) {
       const key = url.pathname.split("/").pop()?.replace(/\.webp$/, "") || "";
